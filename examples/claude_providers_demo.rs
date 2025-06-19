@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "your-anthropic-api-key".to_string(),
         ClaudeModel::Opus4
     );
-    let anthropic_client = ClaudeClient::new(anthropic_config.clone());
+    let _anthropic_client = ClaudeClient::new(anthropic_config.clone());
     println!("   Model: {} ({})", ClaudeModel::Opus4.display_name(), anthropic_config.get_model_for_provider());
     println!("   Provider: Anthropic\n");
     
@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "us-east-1".to_string(),
         ClaudeModel::Opus4  // Same model!
     );
-    let bedrock_client = ClaudeClient::new(bedrock_config.clone());
+    let _bedrock_client = ClaudeClient::new(bedrock_config.clone());
     println!("   Model: {} ({})", ClaudeModel::Opus4.display_name(), bedrock_config.get_model_for_provider());
     println!("   Provider: AWS Bedrock\n");
     
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "us-central1".to_string(),
         ClaudeModel::Opus4  // Same model!
     );
-    let vertex_client = ClaudeClient::new(vertex_config.clone());
+    let _vertex_client = ClaudeClient::new(vertex_config.clone());
     println!("   Model: {} ({})", ClaudeModel::Opus4.display_name(), vertex_config.get_model_for_provider());
     println!("   Provider: GCP Vertex AI\n");
     
@@ -82,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Example 4: Default configuration
     println!("\n🎯 Using default client:");
-    let default_client = ClaudeClient::default();
+    let _default_client = ClaudeClient::default();
     println!("   Default model: {} via Anthropic", ClaudeModel::default().display_name());
     
     println!("\n✅ Demo completed successfully!");
