@@ -17,7 +17,7 @@ impl VertexProvider {
         Self { config }
     }
 
-    async fn call_vertex_api(&self, request: &ClaudeRequest) -> Result<String, AIError> {
+    async fn call_vertex_api(&self, _request: &ClaudeRequest) -> Result<String, AIError> {
         // This is a placeholder implementation
         // In a real implementation, you would:
         // 1. Use the Google Cloud SDK or HTTP client with OAuth2

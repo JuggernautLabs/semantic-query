@@ -17,7 +17,7 @@ impl BedrockProvider {
         Self { config }
     }
 
-    async fn call_bedrock_api(&self, request: &ClaudeRequest) -> Result<String, AIError> {
+    async fn call_bedrock_api(&self, _request: &ClaudeRequest) -> Result<String, AIError> {
         // This is a placeholder implementation
         // In a real implementation, you would:
         // 1. Use the AWS SDK for Rust
