@@ -13,19 +13,9 @@ pub enum ClientType {
     Mock,
 }
 
-impl ClientType {
-    /// Parse client type from string (case insensitive)
-    pub fn from_str(s: &str) -> Result<Self, String> {
-        match s.to_lowercase().as_str() {
-            "claude" => Ok(Self::Claude),
-            "deepseek" => Ok(Self::DeepSeek),
-            "mock" => Ok(Self::Mock),
-            _ => Err(format!("Unknown client type: '{}'. Supported: claude, deepseek, mock", s))
-        }
-    }
-    
-    /// Get the default client type based on available API keys
-    pub fn auto_detect() -> Self {
+impl Default for ClientType {
+      /// Get the default client type based on available API keys
+      fn default() -> Self {
         // Check for API keys in order of preference
         if env::var("ANTHROPIC_API_KEY").is_ok() || 
            std::fs::read_to_string(".env").map_or(false, |content| content.contains("ANTHROPIC_API_KEY")) {
@@ -38,6 +28,31 @@ impl ClientType {
         }
     }
 }
+impl ClientType {
+    /// Parse client type from string (case insensitive)
+    pub fn from_str(s: &str) -> Result<Self, String> {
+        match s.to_lowercase().as_str() {
+            "claude" => Ok(Self::Claude),
+            "deepseek" => Ok(Self::DeepSeek),
+            "mock" => Ok(Self::Mock),
+            _ => Err(format!("Unknown client type: '{}'. Supported: claude, deepseek, mock", s))
+        }
+    }
+    
+  
+}
+
+
+impl std::fmt::Display for ClientType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClientType::Claude => write!(f, "Claude"),
+            ClientType::DeepSeek => write!(f, "DeepSeek"),
+            ClientType::Mock => write!(f, "Mock"),
+        }
+    }
+}
+
 
 /// Flexible client that wraps any LowLevelClient and provides factory functions
 pub struct FlexibleClient {
@@ -45,8 +60,6 @@ pub struct FlexibleClient {
     client_type: ClientType,
 }
 
-/// Global lazy client for tests (set via TEST_CLIENT env var)
-static LAZY_CLIENT: OnceLock<FlexibleClient> = OnceLock::new();
 
 impl std::fmt::Debug for FlexibleClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -93,17 +106,7 @@ impl FlexibleClient {
         Self::new(Box::new(MockVoid))
     }
     
-    /// Get lazy client configured by TEST_CLIENT environment variable
-    pub fn lazy() -> &'static FlexibleClient {
-        LAZY_CLIENT.get_or_init(|| {
-            let client_type = env::var("TEST_CLIENT")
-                .ok()
-                .and_then(|s| ClientType::from_str(&s).ok())
-                .unwrap_or_else(ClientType::auto_detect);
-            
-            Self::new_lazy(client_type)
-        })
-    }
+
     
     /// Initialize the inner client if not already done
     fn ensure_initialized(&self) -> Result<(), AIError> {
