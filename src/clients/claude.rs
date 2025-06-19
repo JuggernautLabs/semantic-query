@@ -1,10 +1,10 @@
 use crate::core::{LowLevelClient};
+use crate::config::KeyFromEnv;
 use crate::error::{AIError, ClaudeError};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn, error, debug, instrument};
-use std::env;
 
 #[derive(Debug, Serialize)]
 struct ClaudeRequest {
@@ -51,58 +51,61 @@ struct ClaudeContent {
     text: String,
 }
 
+/// Configuration for Claude client
+#[derive(Debug, Clone)]
+pub struct ClaudeConfig {
+    pub api_key: String,
+    pub model: String,
+    pub max_tokens: u32,
+    pub enable_caching: bool,
+    pub cache_threshold: usize,
+}
+
+impl Default for ClaudeConfig {
+    fn default() -> Self {
+        Self {
+            api_key: String::new(),
+            model: "claude-3-5-sonnet-20241022".to_string(),
+            max_tokens: 4096,
+            enable_caching: true,
+            cache_threshold: 3000,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct ClaudeClient {
-    api_key: String,
+    config: ClaudeConfig,
     client: Client,
-    model: String,
+}
+
+impl KeyFromEnv for ClaudeClient {
+    const KEY_NAME: &'static str = "ANTHROPIC_API_KEY";
 }
 
 impl Default for ClaudeClient {
     fn default() -> Self {
-        let api_key = env::var("ANTHROPIC_API_KEY")
-            .expect("ANTHROPIC_API_KEY environment variable must be set");
+        let api_key = Self::find_key_with_user();
+        let mut config = ClaudeConfig::default();
+        config.api_key = api_key;
             
-        info!(model = "claude-3-5-sonnet-20241022", "Creating new Claude client with caching support");
+        info!(model = %config.model, "Creating new Claude client with caching support");
         Self {
-            api_key,
+            config,
             client: Client::new(),
-            model: "claude-3-5-sonnet-20241022".to_string(),
         }
     }
 }
 
 impl ClaudeClient {
 
-        /// Create a new DeepSeek client by reading DEEPSEEK_API_KEY from environment/.env
-        pub fn new() -> Result<Self, AIError> {
-            // Try to load .env file (silently fail if not found)
-            let _ = dotenvy::dotenv();
-            
-            let api_key = env::var("ANTHROPIC_API_KEY")
-                .map_err(|_| ClaudeError::Authentication)?;
-                
-            info!(model = "deepseek-chat", "Creating new DeepSeek client");
-            Ok(Self {
-                api_key,
-                client: Client::new(),
-                model: "deepseek-chat".to_string(),
-            })
-        }
-    /// Create a new Claude client with an explicit API key
-    pub fn with_api_key(api_key: String) -> Self {
-        info!(model = "claude-3-5-sonnet-20241022", "Creating new Claude client with explicit API key");
+    /// Create a new Claude client with full configuration
+    pub fn new(config: ClaudeConfig) -> Self {
+        info!(model = %config.model, "Creating new Claude client");
         Self {
-            api_key,
+            config,
             client: Client::new(),
-            model: "claude-3-5-sonnet-20241022".to_string(), // Use Sonnet for better caching
         }
-    }
-    
-    pub fn with_model(mut self, model: String) -> Self {
-        info!(model = %model, "Setting Claude model");
-        self.model = model;
-        self
     }
 
    
@@ -110,11 +113,11 @@ impl ClaudeClient {
 
 #[async_trait]
 impl LowLevelClient for ClaudeClient {
-    #[instrument(skip(self, prompt), fields(prompt_len = prompt.len(), model = %self.model))]
+    #[instrument(skip(self, prompt), fields(prompt_len = prompt.len(), model = %self.config.model))]
     async fn ask_raw(&self, prompt: String) -> Result<String, AIError> {
-        debug!(model = %self.model, prompt_len = prompt.len(), "Preparing Claude API request");
+        debug!(model = %self.config.model, prompt_len = prompt.len(), "Preparing Claude API request");
         
-        let content = if  prompt.len() > 3000 {
+        let content = if self.config.enable_caching && prompt.len() > self.config.cache_threshold {
             // Split prompt for optimal caching
             
             ClaudeMessageContent::Structured(vec![
@@ -134,8 +137,8 @@ impl LowLevelClient for ClaudeClient {
         };
         
         let request = ClaudeRequest {
-            model: self.model.clone(),
-            max_tokens: 4096,
+            model: self.config.model.clone(),
+            max_tokens: self.config.max_tokens,
             messages: vec![ClaudeMessage {
                 role: "user".to_string(),
                 content,
@@ -146,7 +149,7 @@ impl LowLevelClient for ClaudeClient {
         let response = self
             .client
             .post("https://api.anthropic.com/v1/messages")
-            .header("x-api-key", &self.api_key)
+            .header("x-api-key", &self.config.api_key)
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
             .json(&request)

@@ -60,8 +60,9 @@ fn main() {
     
     // Build cargo test command
     let mut cmd = Command::new("cargo");
-    cmd.arg("test");
     
+    cmd.arg("test");
+    cmd.arg("--jobs=1");
     if args.verbose {
         cmd.arg("--verbose");
     }
