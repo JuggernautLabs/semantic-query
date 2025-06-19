@@ -41,7 +41,7 @@ impl KeyFromEnv for ClaudeClient {
 impl Default for ClaudeClient {
     fn default() -> Self {
         let api_key = Self::find_key_with_user();
-        let config = ClaudeConfig::anthropic(api_key, ClaudeModels::HAIKU_3_5.to_string());
+        let config = ClaudeConfig::anthropic(api_key, ClaudeModel::Haiku35);
         Self::new(config)
     }
 }

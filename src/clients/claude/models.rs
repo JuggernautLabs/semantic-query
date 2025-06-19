@@ -1,66 +1,91 @@
-pub struct ClaudeModels;
-
-impl ClaudeModels {
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClaudeModel {
     // Claude 4 Models
-    pub const OPUS_4: &'static str = "claude-opus-4-20250514";
-    pub const SONNET_4: &'static str = "claude-sonnet-4-20250514";
+    Opus4,
+    Sonnet4,
     
     // Claude 3.7 Models
-    pub const SONNET_3_7: &'static str = "claude-3-7-sonnet-20250219";
-    pub const SONNET_3_7_LATEST: &'static str = "claude-3-7-sonnet-latest";
+    Sonnet37,
     
     // Claude 3.5 Models
-    pub const HAIKU_3_5: &'static str = "claude-3-5-haiku-20241022";
-    pub const HAIKU_3_5_LATEST: &'static str = "claude-3-5-haiku-latest";
-    pub const SONNET_3_5_V2: &'static str = "claude-3-5-sonnet-20241022";
-    pub const SONNET_3_5_V2_LATEST: &'static str = "claude-3-5-sonnet-latest";
-    pub const SONNET_3_5: &'static str = "claude-3-5-sonnet-20240620";
+    Haiku35,
+    Sonnet35V2,
+    Sonnet35,
     
     // Claude 3 Models
-    pub const OPUS_3: &'static str = "claude-3-opus-20240229";
-    pub const OPUS_3_LATEST: &'static str = "claude-3-opus-latest";
-    pub const SONNET_3: &'static str = "claude-3-sonnet-20240229";
-    pub const HAIKU_3: &'static str = "claude-3-haiku-20240307";
+    Opus3,
+    Sonnet3,
+    Haiku3,
 }
 
-pub struct BedrockModels;
-
-impl BedrockModels {
-    // Claude 4 Models
-    pub const OPUS_4: &'static str = "anthropic.claude-opus-4-20250514-v1:0";
-    pub const SONNET_4: &'static str = "anthropic.claude-sonnet-4-20250514-v1:0";
-    
-    // Claude 3.7 Models
-    pub const SONNET_3_7: &'static str = "anthropic.claude-3-7-sonnet-20250219-v1:0";
-    
-    // Claude 3.5 Models
-    pub const HAIKU_3_5: &'static str = "anthropic.claude-3-5-haiku-20241022-v1:0";
-    pub const SONNET_3_5_V2: &'static str = "anthropic.claude-3-5-sonnet-20241022-v2:0";
-    pub const SONNET_3_5: &'static str = "anthropic.claude-3-5-sonnet-20240620-v1:0";
-    
-    // Claude 3 Models
-    pub const OPUS_3: &'static str = "anthropic.claude-3-opus-20240229-v1:0";
-    pub const SONNET_3: &'static str = "anthropic.claude-3-sonnet-20240229-v1:0";
-    pub const HAIKU_3: &'static str = "anthropic.claude-3-haiku-20240307-v1:0";
+impl Default for ClaudeModel {
+    fn default() -> Self {
+        Self::Haiku35
+    }
 }
 
-pub struct VertexModels;
+impl ClaudeModel {
+    pub fn anthropic_model_id(&self) -> &'static str {
+        match self {
+            Self::Opus4 => "claude-opus-4-20250514",
+            Self::Sonnet4 => "claude-sonnet-4-20250514",
+            Self::Sonnet37 => "claude-3-7-sonnet-20250219",
+            Self::Haiku35 => "claude-3-5-haiku-20241022",
+            Self::Sonnet35V2 => "claude-3-5-sonnet-20241022",
+            Self::Sonnet35 => "claude-3-5-sonnet-20240620",
+            Self::Opus3 => "claude-3-opus-20240229",
+            Self::Sonnet3 => "claude-3-sonnet-20240229",
+            Self::Haiku3 => "claude-3-haiku-20240307",
+        }
+    }
 
-impl VertexModels {
-    // Claude 4 Models
-    pub const OPUS_4: &'static str = "claude-opus-4@20250514";
-    pub const SONNET_4: &'static str = "claude-sonnet-4@20250514";
-    
-    // Claude 3.7 Models
-    pub const SONNET_3_7: &'static str = "claude-3-7-sonnet@20250219";
-    
-    // Claude 3.5 Models
-    pub const HAIKU_3_5: &'static str = "claude-3-5-haiku@20241022";
-    pub const SONNET_3_5_V2: &'static str = "claude-3-5-sonnet-v2@20241022";
-    pub const SONNET_3_5: &'static str = "claude-3-5-sonnet@20240620";
-    
-    // Claude 3 Models
-    pub const OPUS_3: &'static str = "claude-3-opus@20240229";
-    pub const SONNET_3: &'static str = "claude-3-sonnet@20240229";
-    pub const HAIKU_3: &'static str = "claude-3-haiku@20240307";
+    pub fn bedrock_model_id(&self) -> &'static str {
+        match self {
+            Self::Opus4 => "anthropic.claude-opus-4-20250514-v1:0",
+            Self::Sonnet4 => "anthropic.claude-sonnet-4-20250514-v1:0",
+            Self::Sonnet37 => "anthropic.claude-3-7-sonnet-20250219-v1:0",
+            Self::Haiku35 => "anthropic.claude-3-5-haiku-20241022-v1:0",
+            Self::Sonnet35V2 => "anthropic.claude-3-5-sonnet-20241022-v2:0",
+            Self::Sonnet35 => "anthropic.claude-3-5-sonnet-20240620-v1:0",
+            Self::Opus3 => "anthropic.claude-3-opus-20240229-v1:0",
+            Self::Sonnet3 => "anthropic.claude-3-sonnet-20240229-v1:0",
+            Self::Haiku3 => "anthropic.claude-3-haiku-20240307-v1:0",
+        }
+    }
+
+    pub fn vertex_model_id(&self) -> &'static str {
+        match self {
+            Self::Opus4 => "claude-opus-4@20250514",
+            Self::Sonnet4 => "claude-sonnet-4@20250514",
+            Self::Sonnet37 => "claude-3-7-sonnet@20250219",
+            Self::Haiku35 => "claude-3-5-haiku@20241022",
+            Self::Sonnet35V2 => "claude-3-5-sonnet-v2@20241022",
+            Self::Sonnet35 => "claude-3-5-sonnet@20240620",
+            Self::Opus3 => "claude-3-opus@20240229",
+            Self::Sonnet3 => "claude-3-sonnet@20240229",
+            Self::Haiku3 => "claude-3-haiku@20240307",
+        }
+    }
+
+    pub fn model_id_for_provider(&self, provider: &super::config::Provider) -> &'static str {
+        match provider {
+            super::config::Provider::Anthropic => self.anthropic_model_id(),
+            super::config::Provider::AwsBedrock => self.bedrock_model_id(),
+            super::config::Provider::GcpVertex => self.vertex_model_id(),
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Opus4 => "Claude 4 Opus",
+            Self::Sonnet4 => "Claude 4 Sonnet", 
+            Self::Sonnet37 => "Claude 3.7 Sonnet",
+            Self::Haiku35 => "Claude 3.5 Haiku",
+            Self::Sonnet35V2 => "Claude 3.5 Sonnet v2",
+            Self::Sonnet35 => "Claude 3.5 Sonnet",
+            Self::Opus3 => "Claude 3 Opus",
+            Self::Sonnet3 => "Claude 3 Sonnet",
+            Self::Haiku3 => "Claude 3 Haiku",
+        }
+    }
 }
