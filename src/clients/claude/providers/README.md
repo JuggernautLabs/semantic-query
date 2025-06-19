@@ -1,1 +1,1 @@
-This package really only exists in this form to ensure that the clients can support exensions like this in the future
+This package really only exists (and is incomplete) to ensure that the LowLevelClients can support exensions like this in the future
