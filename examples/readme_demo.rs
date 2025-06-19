@@ -1,17 +1,6 @@
-# Strong Query
-
-AI-powered schema validation with automatic JSON generation for type-safe responses.
-
-## Quick Example
-run using 
-```
-cargo run --example readme_demo
-```
-```rust
 use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
-use semanic_query::client::{QueryResolver, RetryConfig};
-use semanic_query::claude::ClaudeClient;
+use semantic_query::client::{FlexibleClient, QueryResolver, RetryConfig};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct QuizQuestion {
@@ -31,7 +20,7 @@ struct Quiz {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create Claude client (reads ANTHROPIC_API_KEY from environment)
-    let client = ClaudeClient::new()?;
+    let client = FlexibleClient::claude();
     let resolver = QueryResolver::new(client, RetryConfig::default());
     
     // Get 10 science quiz questions
@@ -67,6 +56,3 @@ async fn administer_quiz(questions: Vec<QuizQuestion>) {
     println!("\n🎯 Quiz Complete! Final Score: {}/{} ({}%)", 
              score, total, (score * 100) / total);
 }
-```
-
-**Setup**: Add `ANTHROPIC_API_KEY=your_key_here` to `.env` file.

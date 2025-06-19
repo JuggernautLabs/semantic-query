@@ -1,5 +1,5 @@
-use client_implementations::client::RetryConfig;
-use client_implementations::test_utils::{create_test_resolver, create_test_resolver_with_config, should_skip_integration_tests, print_test_client_info};
+use semantic_query::client::RetryConfig;
+use semantic_query::test_utils::{create_test_resolver, create_test_resolver_with_config, should_skip_integration_tests, print_test_client_info};
 use serde::Deserialize;
 use schemars::JsonSchema;
 use std::sync::Once;
