@@ -100,7 +100,7 @@ impl<C: LowLevelClient> QueryResolver<C> {
     
     /// Query with retry logic and automatic JSON parsing
     #[instrument(skip(self, prompt), fields(prompt_len = prompt.len()))]
-    pub async fn query<T>(&self, prompt: String) -> Result<T, QueryResolverError>
+    pub async fn query_raw<T>(&self, prompt: String) -> Result<T, QueryResolverError>
     where
         T: DeserializeOwned + Send,
     {
@@ -115,7 +115,7 @@ impl<C: LowLevelClient> QueryResolver<C> {
     
     /// Query with automatic schema-aware prompt augmentation
     #[instrument(skip(self, prompt), fields(prompt_len = prompt.len()))]
-    pub async fn query_with_schema<T>(&self, prompt: String) -> Result<T, QueryResolverError>
+    pub async fn query<T>(&self, prompt: String) -> Result<T, QueryResolverError>
     where
         T: DeserializeOwned + JsonSchema + Send,
     {
