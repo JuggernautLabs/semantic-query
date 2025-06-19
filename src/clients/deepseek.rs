@@ -1,10 +1,10 @@
 use crate::core::{LowLevelClient};
+use crate::config::KeyFromEnv;
 use crate::error::{AIError, DeepSeekError};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn, error, debug, instrument};
-use std::env;
 
 #[derive(Debug, Serialize)]
 struct DeepSeekRequest {
@@ -35,85 +35,84 @@ struct DeepSeekResponseMessage {
     content: String,
 }
 
+/// Configuration for DeepSeek client
+#[derive(Debug, Clone)]
+pub struct DeepSeekConfig {
+    pub api_key: String,
+    pub model: String,
+    pub max_tokens: u32,
+    pub temperature: f32,
+}
+
+impl Default for DeepSeekConfig {
+    fn default() -> Self {
+        Self {
+            api_key: String::new(),
+            model: "deepseek-chat".to_string(),
+            max_tokens: 4096,
+            temperature: 0.3,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct DeepSeekClient {
-    api_key: String,
+    config: DeepSeekConfig,
     client: Client,
-    model: String,
+}
+
+impl KeyFromEnv for DeepSeekClient {
+    const KEY_NAME: &'static str = "DEEPSEEK_API_KEY";
 }
 
 impl Default for DeepSeekClient {
     fn default() -> Self {
-        let _ = dotenvy::dotenv();
-
-        let api_key = env::var("DEEPSEEK_API_KEY")
-            .expect("DEEPSEEK_API_KEY environment variable must be set");
+        let api_key = Self::find_key_with_user();
+        let mut config = DeepSeekConfig::default();
+        config.api_key = api_key;
             
-        info!(model = "deepseek-chat", "Creating new DeepSeek client");
+        info!(model = %config.model, "Creating new DeepSeek client");
         Self {
-            api_key,
+            config,
             client: Client::new(),
-            model: "deepseek-chat".to_string(),
         }
     }
 }
 
 
 impl DeepSeekClient {
-    /// Create a new DeepSeek client by reading DEEPSEEK_API_KEY from environment/.env
-    pub fn new() -> Result<Self, AIError> {
-        // Try to load .env file (silently fail if not found)
-        let _ = dotenvy::dotenv();
-        
-        let api_key = env::var("DEEPSEEK_API_KEY")
-            .map_err(|_| DeepSeekError::Authentication)?;
-            
-        info!(model = "deepseek-chat", "Creating new DeepSeek client");
-        Ok(Self {
-            api_key,
-            client: Client::new(),
-            model: "deepseek-chat".to_string(),
-        })
-    }
-    
-    /// Create a new DeepSeek client with an explicit API key
-    pub fn with_api_key(api_key: String) -> Self {
-        info!(model = "deepseek-chat", "Creating new DeepSeek client with explicit API key");
+    /// Create a new DeepSeek client with full configuration
+    pub fn new(config: DeepSeekConfig) -> Self {
+        info!(model = %config.model, "Creating new DeepSeek client");
         Self {
-            api_key,
+            config,
             client: Client::new(),
-            model: "deepseek-chat".to_string(),
         }
     }
     
-    pub fn with_model(mut self, model: String) -> Self {
-        info!(model = %model, "Setting DeepSeek model");
-        self.model = model;
-        self
-    }
 }
 
 #[async_trait]
 impl LowLevelClient for DeepSeekClient {
-    #[instrument(skip(self, prompt), fields(prompt_len = prompt.len(), model = %self.model))]
+    #[instrument(skip(self, prompt), fields(prompt_len = prompt.len(), model = %self.config.model))]
     async fn ask_raw(&self, prompt: String) -> Result<String, AIError> {
-        debug!(model = %self.model, prompt_len = prompt.len(), "Preparing DeepSeek API request");
+        debug!(model = %self.config.model, prompt_len = prompt.len(), "Preparing DeepSeek API request");
         
         let request = DeepSeekRequest {
-            model: self.model.clone(),
+            model: self.config.model.clone(),
             messages: vec![DeepSeekMessage {
                 role: "user".to_string(),
                 content: prompt,
             }],
-            max_tokens: 4096,
-            temperature: 0.3,
+            max_tokens: self.config.max_tokens,
+            temperature: self.config.temperature,
         };
         
         debug!("Sending request to DeepSeek API");
         let response = self
             .client
             .post("https://api.deepseek.com/v1/chat/completions")
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Authorization", format!("Bearer {}", self.config.api_key))
             .header("Content-Type", "application/json")
             .json(&request)
             .send()
