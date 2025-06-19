@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let resolver = QueryResolver::new(mock_client, RetryConfig::default());
     
     // Try a simple query (will return empty {} from mock)
-    match resolver.query_with_schema::<SimpleResponse>("Hello world".to_string()).await {
+    match resolver.query::<SimpleResponse>("Hello world".to_string()).await {
         Ok(response) => println!("   ✅ Query succeeded: {:?}", response),
         Err(e) => println!("   ❌ Query failed (expected with mock): {}", e),
     }
