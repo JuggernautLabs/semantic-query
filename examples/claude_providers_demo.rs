@@ -1,5 +1,4 @@
 use semantic_query::clients::claude::{ClaudeClient, ClaudeConfig, Provider, ClaudeModel};
-use semantic_query::core::LowLevelClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -90,7 +90,7 @@ impl FlexibleClient {
     /// Create a FlexibleClient with a mock client
     pub fn mock() -> Self {
         use super::mock::MockVoid;
-        Self::new(Box::new(MockVoid::default()))
+        Self::new(Box::new(MockVoid))
     }
     
     /// Get lazy client configured by TEST_CLIENT environment variable
@@ -120,7 +120,7 @@ impl FlexibleClient {
                 }
                 ClientType::Mock => {
                     use super::mock::MockVoid;
-                    Box::new(MockVoid::default())
+                    Box::new(MockVoid)
                 }
             };
             *inner = Some(client);

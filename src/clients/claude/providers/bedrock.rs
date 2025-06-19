@@ -1,8 +1,6 @@
 use crate::error::{AIError, ClaudeError};
 use async_trait::async_trait;
-use serde_json::json;
-use std::collections::HashMap;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument};
 
 use super::{ClaudeProvider, ClaudeRequest};
 use crate::clients::claude::config::ClaudeConfig;
