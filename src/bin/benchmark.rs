@@ -1,56 +1,33 @@
 use clap::Parser;
 use semantic_query::clients::flexible::FlexibleClient;
+use semantic_query::clients::ClientType;
 use semantic_query::core::{QueryResolver, RetryConfig};
 use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 use std::env;
 use std::io::{self, Write};
+use std::sync::OnceLock;
 use std::time::Instant;
 use tokio::task::JoinSet;
 
-#[derive(Debug, Clone)]
-pub enum ClientType {
-    Claude,
-    DeepSeek,
-    Mock,
+
+
+/// Global lazy client for tests (set via TEST_CLIENT env var)
+static LAZY_CLIENT: OnceLock<FlexibleClient> = OnceLock::new();
+
+
+fn get_client() -> &'static FlexibleClient {
+    LAZY_CLIENT.get_or_init(|| {
+        let client_type = env::var("TEST_CLIENT")
+            .ok()
+            .and_then(|s| ClientType::from_str(&s).ok())
+            .unwrap_or_else(ClientType::default);
+        
+        FlexibleClient::new_lazy(client_type)
+    })
 }
 
-impl std::fmt::Display for ClientType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ClientType::Claude => write!(f, "Claude"),
-            ClientType::DeepSeek => write!(f, "DeepSeek"),
-            ClientType::Mock => write!(f, "Mock"),
-        }
-    }
-}
-
-impl ClientType {
-    /// Parse client type from string (case insensitive)
-    pub fn from_str(s: &str) -> Result<Self, String> {
-        match s.to_lowercase().as_str() {
-            "claude" => Ok(Self::Claude),
-            "deepseek" => Ok(Self::DeepSeek),
-            "mock" => Ok(Self::Mock),
-            _ => Err(format!("Unknown client type: '{}'. Supported: claude, deepseek, mock", s))
-        }
-    }
-    
-    /// Get the default client type based on available API keys
-    pub fn default() -> Self {
-        // Check for API keys in order of preference
-        if env::var("ANTHROPIC_API_KEY").is_ok() || 
-           std::fs::read_to_string(".env").map_or(false, |content| content.contains("ANTHROPIC_API_KEY")) {
-            Self::Claude
-        } else if env::var("DEEPSEEK_API_KEY").is_ok() || 
-                 std::fs::read_to_string(".env").map_or(false, |content| content.contains("DEEPSEEK_API_KEY")) {
-            Self::DeepSeek
-        } else {
-            Self::Mock
-        }
-    }
-}
-
+ 
 /// Get the configured client type from environment or prompt user
 fn get_or_prompt_client_type() -> ClientType {
     // Check if already set via environment
@@ -196,7 +173,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Individual benchmark functions that can run in parallel
 
 async fn benchmark_math_query(_verbose: bool) -> String {
-    let client = FlexibleClient::lazy().clone();
+    let client = get_client().clone();
     let resolver = QueryResolver::new(client, RetryConfig::default());
     let start = Instant::now();
     let result = resolver.query::<MathResult>("What is 15 + 27? Please provide the result and verify if it's correct.".to_string()).await;
@@ -218,7 +195,7 @@ async fn benchmark_math_query(_verbose: bool) -> String {
 }
 
 async fn benchmark_code_analysis(verbose: bool) -> String {
-    let client = FlexibleClient::lazy().clone();
+    let client = get_client().clone();
     let resolver = QueryResolver::new(client, RetryConfig::default());
     let code = r#"
 function processData(data) {
@@ -261,7 +238,7 @@ function processData(data) {
 }
 
 async fn benchmark_schema_constraints(verbose: bool) -> String {
-    let client = FlexibleClient::lazy().clone();
+    let client = get_client().clone();
     let resolver = QueryResolver::new(client, RetryConfig::default());
     let start = Instant::now();
     let result = resolver.query::<CodeAnalysis>("Give a high-confidence analysis of this simple function: fn add(a: i32, b: i32) -> i32 { a + b }".to_string()).await;
@@ -301,7 +278,7 @@ async fn benchmark_schema_constraints(verbose: bool) -> String {
 }
 
 async fn benchmark_schema_accuracy(verbose: bool) -> String {
-    let client = FlexibleClient::lazy().clone();
+    let client = get_client().clone();
     let resolver = QueryResolver::new(client, RetryConfig::default());
     let start = Instant::now();
     let result = resolver.query::<MathResult>("What is 8 * 7? Return exactly what the schema asks for.".to_string()).await;
@@ -338,7 +315,7 @@ async fn benchmark_advanced_retry(verbose: bool) -> String {
     retry_config.max_retries.insert("json_parse_error".to_string(), 3);
     retry_config.default_max_retries = 2;
     
-    let client = FlexibleClient::lazy().clone();
+    let client = get_client().clone();
     let retry_resolver = QueryResolver::new(client, retry_config);
     
     let start = Instant::now();
@@ -365,7 +342,7 @@ async fn benchmark_advanced_retry(verbose: bool) -> String {
 }
 
 async fn benchmark_empty_prompt(verbose: bool) -> String {
-    let client = FlexibleClient::lazy().clone();
+    let client = get_client().clone();
     let resolver = QueryResolver::new(client, RetryConfig::default());
     let start = Instant::now();
     let result = resolver.query::<MathResult>("".to_string()).await; // Empty prompt should fail
