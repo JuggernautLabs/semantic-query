@@ -1,4 +1,4 @@
-use crate::client::{LowLevelClient};
+use crate::core::{LowLevelClient};
 use crate::error::{AIError, ClaudeError};
 use async_trait::async_trait;
 use reqwest::Client;

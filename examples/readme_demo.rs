@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
-use semantic_query::client::{FlexibleClient, QueryResolver, RetryConfig};
+use semantic_query::{core::{QueryResolver, RetryConfig}, clients::flexible::FlexibleClient};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct QuizQuestion {

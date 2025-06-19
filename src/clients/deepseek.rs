@@ -1,4 +1,4 @@
-use crate::client::{LowLevelClient};
+use crate::core::{LowLevelClient};
 use crate::error::{AIError, DeepSeekError};
 use async_trait::async_trait;
 use reqwest::Client;
@@ -44,6 +44,8 @@ pub struct DeepSeekClient {
 
 impl Default for DeepSeekClient {
     fn default() -> Self {
+        let _ = dotenvy::dotenv();
+
         let api_key = env::var("DEEPSEEK_API_KEY")
             .expect("DEEPSEEK_API_KEY environment variable must be set");
             
