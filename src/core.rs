@@ -2,6 +2,7 @@ use crate::error::{QueryResolverError, AIError};
 use crate::json_utils;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
+use std::fmt::Debug;
 use async_trait::async_trait;
 use tracing::{info, warn, error, debug, instrument};
 use schemars::{JsonSchema, schema_for};
@@ -10,8 +11,7 @@ use schemars::{JsonSchema, schema_for};
 /// This trait can be used as dyn LowLevelClient for dynamic dispatch.
 /// JSON processing is handled by utility functions with a convenience method.
 #[async_trait]
-pub trait LowLevelClient: Send + Sync {
-
+pub trait LowLevelClient: Send + Sync + Debug{
     /// The only method that implementations must provide
     async fn ask_raw(&self, prompt: String) -> Result<String, AIError>;
     

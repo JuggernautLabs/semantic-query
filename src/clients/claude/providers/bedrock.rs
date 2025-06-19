@@ -5,7 +5,7 @@ use tracing::{debug, error, info, instrument};
 use super::{ClaudeProvider, ClaudeRequest};
 use crate::clients::claude::config::ClaudeConfig;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BedrockProvider {
     config: ClaudeConfig,
     // Note: In a real implementation, you'd include AWS SDK client here

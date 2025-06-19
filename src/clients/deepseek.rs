@@ -55,7 +55,7 @@ impl Default for DeepSeekConfig {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DeepSeekClient {
     config: DeepSeekConfig,
     client: Client,
