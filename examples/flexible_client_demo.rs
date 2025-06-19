@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use semantic_query::{core::{LowLevelClient, QueryResolver, RetryConfig}, clients::flexible::FlexibleClient};
 use serde::{Deserialize};
 use schemars::JsonSchema;

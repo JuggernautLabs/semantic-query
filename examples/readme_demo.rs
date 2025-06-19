@@ -1,4 +1,6 @@
-use serde::{Deserialize, Serialize};
+#![allow(dead_code)]
+
+use serde::{Deserialize};
 use schemars::JsonSchema;
 use semantic_query::{core::{QueryResolver, RetryConfig}, clients::flexible::FlexibleClient};
 
