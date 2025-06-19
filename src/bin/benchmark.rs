@@ -165,6 +165,33 @@ struct Args {
     verbose: bool,
 }
 
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = Args::parse();
+    
+    // Initialize tracing if verbose
+    if args.verbose {
+        tracing_subscriber::fmt::init();
+    }
+    
+    // Get client type
+    let client_type = if let Some(client_str) = args.client {
+        ClientType::from_str(&client_str)?
+    } else {
+        get_or_prompt_client_type()
+    };
+    
+    println!("🎯 Running benchmarks with {} client", client_type);
+    println!();
+    
+    // Set TEST_CLIENT environment variable for lazy client
+    env::set_var("TEST_CLIENT", client_type.to_string().to_lowercase());
+    
+    // Run benchmark tests in parallel
+    run_benchmarks_parallel(args.verbose).await?;
+    
+    Ok(())
+}
 
 /// Individual benchmark functions that can run in parallel
 
@@ -386,151 +413,6 @@ async fn run_benchmarks_parallel(verbose: bool) -> Result<(), Box<dyn std::error
     
     println!();
     println!("🏁 Parallel Benchmark Complete!");
-    
-    Ok(())
-}
-
-// ============================================================================
-// DIVAN BENCHMARKS - Run with: cargo bench --bin benchmark
-// ============================================================================
-
-/// Divan benchmark for math query performance
-#[divan::bench]
-async fn divan_math_query() {
-    let client = FlexibleClient::lazy().clone();
-    let resolver = QueryResolver::new(client, RetryConfig::default());
-    
-    divan::black_box(
-        resolver.query::<MathResult>(
-            "What is 15 + 27? Please provide the result and verify if it's correct.".to_string()
-        ).await
-    ).ok();
-}
-
-/// Divan benchmark for code analysis performance
-#[divan::bench]
-async fn divan_code_analysis() {
-    let client = FlexibleClient::lazy().clone();
-    let resolver = QueryResolver::new(client, RetryConfig::default());
-    
-    let code = r#"
-function processData(data) {
-    if (data = null) {
-        return data.length;
-    }
-    return data;
-}
-    "#;
-    
-    let prompt = format!(
-        "Analyze this JavaScript code for issues:\n\n{}\n\nProvide your analysis with confidence score and specific issues found.", 
-        code
-    );
-    
-    divan::black_box(
-        resolver.query::<CodeAnalysis>(prompt).await
-    ).ok();
-}
-
-/// Divan benchmark for schema constraints validation
-#[divan::bench]
-async fn divan_schema_constraints() {
-    let client = FlexibleClient::lazy().clone();
-    let resolver = QueryResolver::new(client, RetryConfig::default());
-    
-    divan::black_box(
-        resolver.query::<CodeAnalysis>(
-            "Give a high-confidence analysis of this simple function: fn add(a: i32, b: i32) -> i32 { a + b }".to_string()
-        ).await
-    ).ok();
-}
-
-/// Divan benchmark for schema accuracy testing
-#[divan::bench]
-async fn divan_schema_accuracy() {
-    let client = FlexibleClient::lazy().clone();
-    let resolver = QueryResolver::new(client, RetryConfig::default());
-    
-    divan::black_box(
-        resolver.query::<MathResult>(
-            "What is 8 * 7? Return exactly what the schema asks for.".to_string()
-        ).await
-    ).ok();
-}
-
-/// Divan benchmark for advanced retry behavior
-#[divan::bench]
-async fn divan_advanced_retry() {
-    let mut retry_config = RetryConfig::default();
-    retry_config.max_retries.insert("json_parse_error".to_string(), 3);
-    retry_config.default_max_retries = 2;
-    
-    let client = FlexibleClient::lazy().clone();
-    let retry_resolver = QueryResolver::new(client, retry_config);
-    
-    divan::black_box(
-        retry_resolver.query::<MathResult>(
-            "Calculate the square root of 144. Be very verbose in your explanation but still return the JSON.".to_string()
-        ).await
-    ).ok();
-}
-
-/// Divan benchmark for empty prompt error handling
-#[divan::bench]
-async fn divan_empty_prompt() {
-    let client = FlexibleClient::lazy().clone();
-    let resolver = QueryResolver::new(client, RetryConfig::default());
-    
-    divan::black_box(
-        resolver.query::<MathResult>("".to_string()).await
-    ).ok();
-}
-
-// Main function for divan when running benchmarks
-fn main() {
-    // Check if we're running in benchmark mode
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 && args[1] == "--bench" {
-        // Set default client for benchmarks if not specified
-        if env::var("TEST_CLIENT").is_err() {
-            env::set_var("TEST_CLIENT", "mock"); // Default to mock for benchmarks
-        }
-        divan::main();
-    } else {
-        // Run the interactive benchmark mode
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            if let Err(e) = run_interactive_benchmarks().await {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            }
-        });
-    }
-}
-
-// Rename the original main function
-async fn run_interactive_benchmarks() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Args::parse();
-    
-    // Initialize tracing if verbose
-    if args.verbose {
-        tracing_subscriber::fmt::init();
-    }
-    
-    // Get client type
-    let client_type = if let Some(client_str) = args.client {
-        ClientType::from_str(&client_str)?
-    } else {
-        get_or_prompt_client_type()
-    };
-    
-    println!("🎯 Running benchmarks with {} client", client_type);
-    println!();
-    
-    // Set TEST_CLIENT environment variable for lazy client
-    env::set_var("TEST_CLIENT", client_type.to_string().to_lowercase());
-    
-    // Run benchmark tests in parallel
-    run_benchmarks_parallel(args.verbose).await?;
     
     Ok(())
 }
