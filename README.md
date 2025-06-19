@@ -1,4 +1,4 @@
-# Strong Query
+# Semantic Query
 
 AI-powered schema validation with automatic JSON generation for type-safe responses.
 
