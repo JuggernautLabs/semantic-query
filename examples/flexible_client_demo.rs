@@ -1,4 +1,4 @@
-use client_implementations::client::{FlexibleClient, LowLevelClient, QueryResolver, RetryConfig};
+use semantic_query::client::{FlexibleClient, LowLevelClient, QueryResolver, RetryConfig};
 use serde::{Deserialize};
 use schemars::JsonSchema;
 
