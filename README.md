@@ -7,11 +7,12 @@ run using
 ```
 cargo run --example readme_demo
 ```
+This demo shows how you can build a quiz engine!
 ```rust
-use serde::{Deserialize, Serialize};
+
+use serde::{Deserialize};
 use schemars::JsonSchema;
-use semanic_query::client::{QueryResolver, RetryConfig};
-use semanic_query::claude::ClaudeClient;
+use semantic_query::{core::{QueryResolver, RetryConfig}, clients::flexible::FlexibleClient};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct QuizQuestion {
@@ -31,7 +32,7 @@ struct Quiz {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create Claude client (reads ANTHROPIC_API_KEY from environment)
-    let client = ClaudeClient::new()?;
+    let client = FlexibleClient::claude();
     let resolver = QueryResolver::new(client, RetryConfig::default());
     
     // Get 10 science quiz questions
