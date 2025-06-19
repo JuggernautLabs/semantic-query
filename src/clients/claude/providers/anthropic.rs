@@ -7,7 +7,7 @@ use tracing::{debug, error, info, instrument, warn};
 use super::{ClaudeProvider, ClaudeRequest, ClaudeResponse};
 use crate::clients::claude::config::ClaudeConfig;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AnthropicProvider {
     config: ClaudeConfig,
     client: Client,

@@ -11,7 +11,7 @@ use crate::error::AIError;
 use crate::config::KeyFromEnv;
 use async_trait::async_trait;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ClaudeClientProvider {
     Anthropic(AnthropicProvider),
     Bedrock(BedrockProvider),
@@ -28,7 +28,7 @@ impl ClaudeClientProvider {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ClaudeClient {
     provider: ClaudeClientProvider,
     config: ClaudeConfig,

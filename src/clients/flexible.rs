@@ -1,8 +1,9 @@
+use crate::clients::{ClaudeConfig, DeepSeekConfig};
 use crate::core::{LowLevelClient};
 use crate::error::{AIError};
 use async_trait::async_trait;
 use std::env;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 
 /// Client type for lazy initialization
@@ -11,6 +12,26 @@ pub enum ClientType {
     Claude,
     DeepSeek,
     Mock,
+}
+
+impl Into<Box<dyn LowLevelClient>> for ClientType {
+    fn into(self) -> Box<dyn LowLevelClient> {
+        let client: Box<dyn LowLevelClient> = match self {
+            ClientType::Claude => {
+                use super::claude::ClaudeClient;
+                Box::new(ClaudeClient::default())
+            }
+            ClientType::DeepSeek => {
+                use super::deepseek::DeepSeekClient;
+                Box::new(DeepSeekClient::default())
+            }
+            ClientType::Mock => {
+                use super::mock::MockVoid;
+                Box::new(MockVoid)
+            }
+        };
+        client
+    }
 }
 
 impl Default for ClientType {
@@ -54,50 +75,39 @@ impl std::fmt::Display for ClientType {
 }
 
 
+#[derive(Debug)]
 /// Flexible client that wraps any LowLevelClient and provides factory functions
 pub struct FlexibleClient {
-    inner: Arc<Mutex<Option<Box<dyn LowLevelClient>>>>,
-    client_type: ClientType,
+    inner: Arc<Mutex<Box<dyn LowLevelClient>>>,
 }
 
-
-impl std::fmt::Debug for FlexibleClient {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FlexibleClient")
-            .field("client_type", &self.client_type)
-            .field("initialized", &self.inner.lock().unwrap().is_some())
-            .finish()
-    }
-}
 
 impl FlexibleClient {
     /// Create a new FlexibleClient with lazy initialization
     pub fn new_lazy(client_type: ClientType) -> Self {
+       
         Self { 
-            inner: Arc::new(Mutex::new(None)),
-            client_type,
+            inner: Arc::new(Mutex::new(client_type.into())),
         }
     }
     
     /// Create a new FlexibleClient wrapping the given client
     pub fn new(client: Box<dyn LowLevelClient>) -> Self {
-        let client_type = ClientType::Mock; // Default fallback
         Self { 
-            inner: Arc::new(Mutex::new(Some(client))),
-            client_type,
+            inner: Arc::new(Mutex::new(client)),
         }
     }
     
     /// Create a FlexibleClient with a Claude client
-    pub fn claude() -> Self {
+    pub fn claude(config: ClaudeConfig) -> Self {
         use super::claude::ClaudeClient;
-        Self::new(Box::new(ClaudeClient::default()))
+        Self::new(Box::new(ClaudeClient::new(config)))
     }
     
     /// Create a FlexibleClient with a DeepSeek client  
-    pub fn deepseek() -> Self {
+    pub fn deepseek(config: DeepSeekConfig) -> Self {
         use super::deepseek::DeepSeekClient;
-        Self::new(Box::new(DeepSeekClient::default()))
+        Self::new(Box::new(DeepSeekClient::new(config)))
     }
     
     /// Create a FlexibleClient with a mock client
@@ -106,36 +116,10 @@ impl FlexibleClient {
         Self::new(Box::new(MockVoid))
     }
     
-
-    
-    /// Initialize the inner client if not already done
-    fn ensure_initialized(&self) -> Result<(), AIError> {
-        let mut inner = self.inner.lock().unwrap();
-        if inner.is_none() {
-            let client: Box<dyn LowLevelClient> = match self.client_type {
-                ClientType::Claude => {
-                    use super::claude::ClaudeClient;
-                    Box::new(ClaudeClient::default())
-                }
-                ClientType::DeepSeek => {
-                    use super::deepseek::DeepSeekClient;
-                    Box::new(DeepSeekClient::default())
-                }
-                ClientType::Mock => {
-                    use super::mock::MockVoid;
-                    Box::new(MockVoid)
-                }
-            };
-            *inner = Some(client);
-        }
-        Ok(())
-    }
-    
     /// Convert into the inner boxed client (initializes if needed)
     pub fn into_inner(self) -> Result<Box<dyn LowLevelClient>, AIError> {
-        self.ensure_initialized()?;
-        let inner = self.inner.lock().unwrap().take();
-        Ok(inner.unwrap())
+        let inner = self.inner.lock().unwrap().clone_box();
+        Ok(inner)
     }
 }
 
@@ -143,7 +127,6 @@ impl Clone for FlexibleClient {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
-            client_type: self.client_type.clone(),
         }
     }
 }
@@ -151,12 +134,11 @@ impl Clone for FlexibleClient {
 #[async_trait]
 impl LowLevelClient for FlexibleClient {
     async fn ask_raw(&self, prompt: String) -> Result<String, AIError> {
-        self.ensure_initialized()?;
         
         // Clone the client to avoid holding the mutex across await
         let client = {
             let inner = self.inner.lock().unwrap();
-            inner.as_ref().unwrap().clone_box()
+            inner.as_ref().clone_box()
         };
         
         client.ask_raw(prompt).await

@@ -2,7 +2,7 @@
 
 use serde::{Deserialize};
 use schemars::JsonSchema;
-use semantic_query::{core::{QueryResolver, RetryConfig}, clients::flexible::FlexibleClient};
+use semantic_query::{clients::{flexible::FlexibleClient, ClaudeConfig}, core::{QueryResolver, RetryConfig}};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct QuizQuestion {
@@ -22,7 +22,7 @@ struct Quiz {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create Claude client (reads ANTHROPIC_API_KEY from environment)
-    let client = FlexibleClient::claude();
+    let client = FlexibleClient::claude(ClaudeConfig::default());
     let resolver = QueryResolver::new(client, RetryConfig::default());
     
     // Get 10 science quiz questions
