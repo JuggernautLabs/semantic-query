@@ -1,4 +1,3 @@
-use crate::error::AIError;
 use serde::{Serialize, Deserialize};
 use tracing::debug;
 use regex::Regex;
@@ -231,17 +230,4 @@ pub fn extract_json_from_markdown(response: &str) -> Option<String> {
     }
     
     None
-}
-
-/// Simple JSON extraction from a prompt response  
-pub async fn ask_json<F, Fut>(ask_raw_fn: F, prompt: String) -> Result<String, AIError>
-where
-    F: FnOnce(String) -> Fut,
-    Fut: std::future::Future<Output = Result<String, AIError>>,
-{
-    debug!(prompt_len = prompt.len(), "Starting ask_json");
-    let raw_response = ask_raw_fn(prompt).await?;
-    let json_content = find_json(&raw_response);
-    debug!(raw_len = raw_response.len(), json_len = json_content.len(), "Extracted JSON from response");
-    Ok(json_content)
 }
