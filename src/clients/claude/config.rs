@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use super::models::ClaudeModel;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Provider {
@@ -16,8 +16,8 @@ impl Default for Provider {
 #[derive(Debug, Clone)]
 pub struct ClaudeConfig {
     pub provider: Provider,
+    pub model: ClaudeModel,
     pub api_key: String,
-    pub model: String,
     pub max_tokens: u32,
     pub enable_caching: bool,
     pub cache_threshold: usize,
@@ -35,8 +35,8 @@ impl Default for ClaudeConfig {
     fn default() -> Self {
         Self {
             provider: Provider::default(),
+            model: ClaudeModel::default(),
             api_key: String::new(),
-            model: "claude-3-5-haiku-20241022".to_string(),
             max_tokens: 4096,
             enable_caching: true,
             cache_threshold: 3000,
@@ -51,16 +51,24 @@ impl Default for ClaudeConfig {
 }
 
 impl ClaudeConfig {
-    pub fn anthropic(api_key: String, model: String) -> Self {
+    pub fn new(provider: Provider, model: ClaudeModel) -> Self {
         Self {
-            provider: Provider::Anthropic,
-            api_key,
+            provider,
             model,
             ..Default::default()
         }
     }
 
-    pub fn bedrock(aws_region: String, model: String) -> Self {
+    pub fn anthropic(api_key: String, model: ClaudeModel) -> Self {
+        Self {
+            provider: Provider::Anthropic,
+            model,
+            api_key,
+            ..Default::default()
+        }
+    }
+
+    pub fn bedrock(aws_region: String, model: ClaudeModel) -> Self {
         Self {
             provider: Provider::AwsBedrock,
             model,
@@ -69,7 +77,7 @@ impl ClaudeConfig {
         }
     }
 
-    pub fn vertex(project_id: String, location: String, model: String) -> Self {
+    pub fn vertex(project_id: String, location: String, model: ClaudeModel) -> Self {
         Self {
             provider: Provider::GcpVertex,
             model,
@@ -80,38 +88,16 @@ impl ClaudeConfig {
     }
 
     pub fn get_model_for_provider(&self) -> String {
-        match self.provider {
-            Provider::Anthropic => self.model.clone(),
-            Provider::AwsBedrock => {
-                // Convert Anthropic model names to Bedrock format if needed
-                match self.model.as_str() {
-                    "claude-opus-4-20250514" => "anthropic.claude-opus-4-20250514-v1:0".to_string(),
-                    "claude-sonnet-4-20250514" => "anthropic.claude-sonnet-4-20250514-v1:0".to_string(),
-                    "claude-3-7-sonnet-20250219" => "anthropic.claude-3-7-sonnet-20250219-v1:0".to_string(),
-                    "claude-3-5-haiku-20241022" => "anthropic.claude-3-5-haiku-20241022-v1:0".to_string(),
-                    "claude-3-5-sonnet-20241022" => "anthropic.claude-3-5-sonnet-20241022-v2:0".to_string(),
-                    "claude-3-5-sonnet-20240620" => "anthropic.claude-3-5-sonnet-20240620-v1:0".to_string(),
-                    "claude-3-opus-20240229" => "anthropic.claude-3-opus-20240229-v1:0".to_string(),
-                    "claude-3-sonnet-20240229" => "anthropic.claude-3-sonnet-20240229-v1:0".to_string(),
-                    "claude-3-haiku-20240307" => "anthropic.claude-3-haiku-20240307-v1:0".to_string(),
-                    _ => self.model.clone(),
-                }
-            }
-            Provider::GcpVertex => {
-                // Convert Anthropic model names to Vertex format if needed
-                match self.model.as_str() {
-                    "claude-opus-4-20250514" => "claude-opus-4@20250514".to_string(),
-                    "claude-sonnet-4-20250514" => "claude-sonnet-4@20250514".to_string(),
-                    "claude-3-7-sonnet-20250219" => "claude-3-7-sonnet@20250219".to_string(),
-                    "claude-3-5-haiku-20241022" => "claude-3-5-haiku@20241022".to_string(),
-                    "claude-3-5-sonnet-20241022" => "claude-3-5-sonnet-v2@20241022".to_string(),
-                    "claude-3-5-sonnet-20240620" => "claude-3-5-sonnet@20240620".to_string(),
-                    "claude-3-opus-20240229" => "claude-3-opus@20240229".to_string(),
-                    "claude-3-sonnet-20240229" => "claude-3-sonnet@20240229".to_string(),
-                    "claude-3-haiku-20240307" => "claude-3-haiku@20240307".to_string(),
-                    _ => self.model.clone(),
-                }
-            }
-        }
+        self.model.model_id_for_provider(&self.provider).to_string()
+    }
+
+    pub fn with_provider(mut self, provider: Provider) -> Self {
+        self.provider = provider;
+        self
+    }
+
+    pub fn with_model(mut self, model: ClaudeModel) -> Self {
+        self.model = model;
+        self
     }
 }
