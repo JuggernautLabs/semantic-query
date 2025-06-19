@@ -1,7 +1,9 @@
-use crate::client::{LowLevelClient, QueryResolver, RetryConfig, FlexibleClient};
+
 use std::env;
 use std::sync::OnceLock;
 
+use semantic_query::clients::*;
+use semantic_query::core::*;
 /// Supported AI clients for testing
 #[derive(Debug, Clone)]
 pub enum ClientType {
@@ -107,9 +109,9 @@ pub fn create_flexible_test_resolver_with_config(config: RetryConfig) -> QueryRe
 
 /// Create a concrete client instance for cases where you need a specific type
 pub fn create_concrete_client(client_type: ClientType) -> Box<dyn LowLevelClient> {
-    use crate::claude::ClaudeClient;
-    use crate::deepseek::DeepSeekClient;
-    use crate::client::MockVoid;
+    use semantic_query::clients::claude::ClaudeClient;
+    use semantic_query::clients::deepseek::DeepSeekClient;
+    use semantic_query::clients::mock::MockVoid;
     
     match client_type {
         ClientType::Claude => Box::new(ClaudeClient::default()),
@@ -160,6 +162,8 @@ pub fn print_test_client_info() {
 
 /// Utility functions for testing different resolver patterns
 pub mod patterns {
+    use semantic_query::clients::claude::ClaudeClient;
+
     use super::*;
     
     /// Pattern 1: Using FlexibleClient (recommended for most cases)
@@ -173,20 +177,20 @@ pub mod patterns {
     }
     
     /// Pattern 3: Using concrete types (best performance, but less flexible)
-    pub fn pattern_concrete_claude() -> QueryResolver<crate::claude::ClaudeClient> {
-        use crate::claude::ClaudeClient;
+    pub fn pattern_concrete_claude() -> QueryResolver<ClaudeClient> {
+        use semantic_query::clients::claude::ClaudeClient;
         QueryResolver::new(ClaudeClient::default(), RetryConfig::default())
     }
     
     /// Pattern 4: Using concrete types for DeepSeek
-    pub fn pattern_concrete_deepseek() -> QueryResolver<crate::deepseek::DeepSeekClient> {
-        use crate::deepseek::DeepSeekClient;
+    pub fn pattern_concrete_deepseek() -> QueryResolver<DeepSeekClient> {
+        use semantic_query::clients::DeepSeekClient;
         QueryResolver::new(DeepSeekClient::default(), RetryConfig::default())
     }
     
     /// Pattern 5: Using mock for testing
-    pub fn pattern_mock() -> QueryResolver<crate::client::MockVoid> {
-        use crate::client::MockVoid;
+    pub fn pattern_mock() -> QueryResolver<MockVoid> {
+        use semantic_query::clients::mock::MockVoid;
         QueryResolver::new(MockVoid::default(), RetryConfig::default())
     }
 }

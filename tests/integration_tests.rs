@@ -1,5 +1,7 @@
-use semantic_query::client::RetryConfig;
-use semantic_query::test_utils::{create_test_resolver, create_test_resolver_with_config, should_skip_integration_tests, print_test_client_info};
+mod test_utils;
+
+use semantic_query::core::RetryConfig;
+use crate::test_utils::{create_test_resolver, create_test_resolver_with_config, should_skip_integration_tests, print_test_client_info};
 use serde::Deserialize;
 use schemars::JsonSchema;
 use std::sync::Once;

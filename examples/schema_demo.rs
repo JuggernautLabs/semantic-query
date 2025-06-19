@@ -1,4 +1,4 @@
-use semantic_query::client::{QueryResolver, RetryConfig, MockVoid};
+use semantic_query::{core::{QueryResolver, RetryConfig}, clients::mock::MockVoid};
 use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 
