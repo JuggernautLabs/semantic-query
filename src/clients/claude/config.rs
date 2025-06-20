@@ -1,3 +1,5 @@
+use crate::config::KeyFromEnv;
+
 use super::models::ClaudeModel;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -36,7 +38,8 @@ impl Default for ClaudeConfig {
         Self {
             provider: Provider::default(),
             model: ClaudeModel::default(),
-            api_key: String::new(),
+            api_key: ClaudeConfig::find_key().unwrap_or(String::new()),
+
             max_tokens: 4096,
             enable_caching: true,
             cache_threshold: 3000,

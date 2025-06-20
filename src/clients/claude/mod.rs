@@ -34,14 +34,13 @@ pub struct ClaudeClient {
     config: ClaudeConfig,
 }
 
-impl KeyFromEnv for ClaudeClient {
+impl KeyFromEnv for ClaudeConfig {
     const KEY_NAME: &'static str = "ANTHROPIC_API_KEY";
 }
 
 impl Default for ClaudeClient {
     fn default() -> Self {
-        let api_key = Self::find_key_with_user();
-        let config = ClaudeConfig::anthropic(api_key, ClaudeModel::Haiku35);
+        let config = ClaudeConfig::anthropic(ClaudeConfig::find_key().unwrap_or(String::new()), ClaudeModel::Haiku35);
         Self::new(config)
     }
 }

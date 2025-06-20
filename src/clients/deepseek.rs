@@ -47,7 +47,7 @@ pub struct DeepSeekConfig {
 impl Default for DeepSeekConfig {
     fn default() -> Self {
         Self {
-            api_key: String::new(),
+            api_key:DeepSeekConfig::find_key().unwrap_or(String::new()),
             model: "deepseek-chat".to_string(),
             max_tokens: 4096,
             temperature: 0.3,
@@ -61,15 +61,13 @@ pub struct DeepSeekClient {
     client: Client,
 }
 
-impl KeyFromEnv for DeepSeekClient {
+impl KeyFromEnv for DeepSeekConfig {
     const KEY_NAME: &'static str = "DEEPSEEK_API_KEY";
 }
 
 impl Default for DeepSeekClient {
     fn default() -> Self {
-        let api_key = Self::find_key_with_user();
-        let mut config = DeepSeekConfig::default();
-        config.api_key = api_key;
+        let config = DeepSeekConfig::default();
             
         info!(model = %config.model, "Creating new DeepSeek client");
         Self {
