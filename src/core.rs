@@ -275,14 +275,26 @@ impl<C: LowLevelClient> QueryResolver<C> {
         
         format!(
             r#"{prompt}
-
-Please respond with JSON that matches this exact schema:
-
+You are tasked with generating a value satisfying a schema. First I will give you an example exchange then I will provide the schema of interest
+Example Schema:
+{{
+    "type": "object",
+    "properties": {{
+        "name": {{"type": "string"}},
+        "age": {{"type": "integer", "minimum": 0}},
+        "email": {{"type": "string"}},
+        "isActive": {{"type": "boolean"}},
+        "hobbies": {{"type": "array", "items": {{"type": "string"}}}}
+    }},
+    "required": ["name", "age", "email", "isActive"]
+}}
+Example response:
+{{"name": "Alice Smith", "age": 28, "email": "alice@example.com", "isActive": true, "hobbies": ["reading", "cooking"]}}
+Please provide a response matching this schema
 ```json
 {schema_json}
 ```
-
-Your response must be valid JSON that can be parsed into this structure. Include all required fields and follow the specified types."#
+"#
         )
     }
     
