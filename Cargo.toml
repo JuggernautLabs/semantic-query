@@ -22,5 +22,6 @@ clap = { version = "4.0", features = ["derive"] }
 crossterm = "0.27"
 tracing-subscriber = "0.3"
 divan = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
