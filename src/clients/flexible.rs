@@ -1,8 +1,10 @@
 use crate::clients::{ClaudeConfig, DeepSeekConfig};
 use crate::core::{LowLevelClient};
 use crate::error::{AIError};
+use crate::interceptors::{FileInterceptor, Interceptor};
 use async_trait::async_trait;
 use std::env;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 
@@ -87,6 +89,7 @@ impl std::fmt::Display for ClientType {
 /// Flexible client that wraps any LowLevelClient and provides factory functions
 pub struct FlexibleClient {
     inner: Arc<Mutex<Box<dyn LowLevelClient>>>,
+    interceptor: Option<Arc<dyn Interceptor>>,
 }
 
 
@@ -96,6 +99,7 @@ impl FlexibleClient {
        
         Self { 
             inner: Arc::new(Mutex::new(client_type.into())),
+            interceptor: None,
         }
     }
     
@@ -103,9 +107,25 @@ impl FlexibleClient {
     pub fn new(client: Box<dyn LowLevelClient>) -> Self {
         Self { 
             inner: Arc::new(Mutex::new(client)),
+            interceptor: None,
         }
     }
     
+    /// Create a new FlexibleClient with an interceptor
+    pub fn with_interceptor(&self, interceptor: Arc<dyn Interceptor>) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            interceptor: Some(interceptor),
+        }
+    }
+    
+       /// Create a new FlexibleClient with an interceptor
+       pub fn with_file_interceptor(&self, path: PathBuf) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            interceptor: Some(Arc::new(FileInterceptor::new(path))),
+        }
+    }
     /// Create a FlexibleClient with a Claude client
     pub fn claude(config: ClaudeConfig) -> Self {
         use super::claude::ClaudeClient;
@@ -146,6 +166,7 @@ impl Clone for FlexibleClient {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
+            interceptor: self.interceptor.clone(),
         }
     }
 }
@@ -160,7 +181,17 @@ impl LowLevelClient for FlexibleClient {
             inner.as_ref().clone_box()
         };
         
-        client.ask_raw(prompt).await
+        let response = client.ask_raw(prompt.clone()).await?;
+        
+        // Save to interceptor if present
+        if let Some(interceptor) = &self.interceptor {
+            if let Err(e) = interceptor.save(&prompt, &response).await {
+                // Log error but don't fail the request
+                eprintln!("Interceptor save failed: {}", e);
+            }
+        }
+        
+        Ok(response)
     }
     
     fn clone_box(&self) -> Box<dyn LowLevelClient> {
