@@ -68,6 +68,7 @@ impl Default for RetryConfig {
 }
 
 
+#[derive(Clone)]
 /// Query resolver that wraps a LowLevelClient and provides all generic methods.
 /// This allows for flexible composition - you can have arrays of dyn LowLevelClient
 /// and wrap them in QueryResolver as needed.
@@ -232,6 +233,7 @@ impl<C: LowLevelClient> QueryResolver<C> {
                             crate::error::DeepSeekError::Api(_) => "api_error",
                             _ => "other",
                         },
+                        AIError::Mock(_) => "mock_error",
                     };
                     
                     let max_retries = self.config.max_retries.get(error_type)

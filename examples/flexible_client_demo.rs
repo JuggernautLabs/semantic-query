@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Create different client types easily
     println!("\n1. Creating different client types:");
-    let mock_client = FlexibleClient::mock();
+    let (mock_client, _) = FlexibleClient::mock();
     
     println!("   ✅ Mock client: {:?}", mock_client);
     println!("   📝 Claude/DeepSeek clients can be created with FlexibleClient::claude() / ::deepseek()");

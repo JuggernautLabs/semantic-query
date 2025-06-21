@@ -10,7 +10,7 @@ pub enum QueryResolverError {
     MaxRetriesExceeded,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum AIError {
     #[error("Claude API error: {0}")]
     Claude(#[from] ClaudeError),
@@ -18,9 +18,11 @@ pub enum AIError {
     OpenAI(#[from] OpenAIError),
     #[error("DeepSeek API error: {0}")]
     DeepSeek(#[from] DeepSeekError),
+    #[error("Mock error: {0}")]
+    Mock(String),
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum ClaudeError {
     #[error("HTTP error: {0}")]
     Http(String),
@@ -32,7 +34,7 @@ pub enum ClaudeError {
     Authentication,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum OpenAIError {
     #[error("HTTP error: {0}")]
     Http(String),
@@ -44,7 +46,7 @@ pub enum OpenAIError {
     Authentication,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum DeepSeekError {
     #[error("HTTP error: {0}")]
     Http(String),

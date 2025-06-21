@@ -16,7 +16,7 @@ pub enum ClientType {
 
 impl Into<Box<dyn LowLevelClient>> for ClientType {
     fn into(self) -> Box<dyn LowLevelClient> {
-        let client: Box<dyn LowLevelClient> = match self {
+        match self {
             ClientType::Claude => {
                 use super::claude::ClaudeClient;
                 Box::new(ClaudeClient::default())
@@ -26,11 +26,14 @@ impl Into<Box<dyn LowLevelClient>> for ClientType {
                 Box::new(DeepSeekClient::default())
             }
             ClientType::Mock => {
-                use super::mock::MockVoid;
-                Box::new(MockVoid)
+                // Note: This creates a mock without a controllable handle
+                // Use FlexibleClient::new_mock() if you need to control the mock
+                use super::mock::MockClient;
+                let (mock_client, _handle) = MockClient::new();
+                // The handle is dropped here, making this mock uncontrollable
+                Box::new(mock_client)
             }
-        };
-        client
+        }
     }
 }
 
@@ -60,7 +63,12 @@ impl ClientType {
         }
     }
     
-  
+    /// Create a mock variant that returns both the client type and a handle
+    pub fn mock_with_handle() -> (Self, Arc<super::mock::MockHandle>) {
+        use super::mock::MockClient;
+        let (_, handle) = MockClient::new();
+        (Self::Mock, handle)
+    }
 }
 
 
@@ -110,10 +118,21 @@ impl FlexibleClient {
         Self::new(Box::new(DeepSeekClient::new(config)))
     }
     
-    /// Create a FlexibleClient with a mock client
-    pub fn mock() -> Self {
-        use super::mock::MockVoid;
-        Self::new(Box::new(MockVoid))
+    
+    /// Create a FlexibleClient with a mock and return the handle for configuration
+    pub fn mock() -> (Self, Arc<super::mock::MockHandle>) {
+        use super::mock::MockClient;
+        let (mock_client, handle) = MockClient::new();
+        let flexible = Self::new(Box::new(mock_client));
+        (flexible, handle)
+    }
+
+    /// Create a FlexibleClient mock with predefined responses
+    pub fn new_mock_with_responses(responses: Vec<super::mock::MockResponse>) -> (Self, Arc<super::mock::MockHandle>) {
+        use super::mock::MockClient;
+        let (mock_client, handle) = MockClient::with_responses(responses);
+        let flexible = Self::new(Box::new(mock_client));
+        (flexible, handle)
     }
     
     /// Convert into the inner boxed client (initializes if needed)
