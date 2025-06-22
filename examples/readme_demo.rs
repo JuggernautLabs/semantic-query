@@ -6,11 +6,20 @@ use semantic_query::{clients::{flexible::FlexibleClient, ClaudeConfig}, core::{Q
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct QuizQuestion {
+    /// The main question text to be asked
     pub question: String,
+    /// A brief description or context for the question
+    pub description: String,
+    /// Answer choice A
     pub a: String,
+    /// Answer choice B
     pub b: String,
+    /// Answer choice C
     pub c: String,
+    /// Answer choice D
     pub d: String,
+    /// The correct answer (must be exactly one of: A, B, C, or D)
+    #[schemars(regex(pattern = r"^[ABCD]$"))]
     pub correct_answer: String,
 }
 
