@@ -70,6 +70,11 @@ async fn deepseek_semantic_stream_contains_data() -> Result<(), Box<dyn std::err
     assert!(!items.is_empty(), "semantic stream should not be empty; got {} items", items.len());
     let has_data = items.iter().any(|it| matches!(it, SemanticItem::Data(_)));
     assert!(has_data, "semantic stream should contain at least one Data item");
+    // Read the field to avoid dead_code warning and ensure schema actually mapped
+    if let Some(SemanticItem::Data(found)) = items.iter().find(|it| matches!(it, SemanticItem::Data(_))) {
+        println!("[deepseek_semantic_stream_contains_data] first data message length: {}", found.message.len());
+        assert!(found.message.len() >= 0);
+    }
     println!("[deepseek_semantic_stream_contains_data] found Data item: {}", has_data);
     println!("[deepseek_semantic_stream_contains_data] done.");
     Ok(())

@@ -77,6 +77,7 @@ fn sse_aggregator_detects_toolcall() {
                             let end = node.end + 1;
                             if let Ok(tc) = serde_json::from_str::<ToolCall>(&text_buf[node.start..end]) {
                                 assert_eq!(tc.name, "web_search");
+                                assert_eq!(tc.args["q"], "tokio");
                                 found = true;
                             }
                         }
