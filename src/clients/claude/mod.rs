@@ -7,6 +7,7 @@ pub use models::*;
 pub use config::*;
 
 use crate::core::LowLevelClient;
+use futures_util::{StreamExt, TryStreamExt};
 use crate::error::AIError;
 use crate::config::KeyFromEnv;
 use async_trait::async_trait;
@@ -17,8 +18,6 @@ pub enum ClaudeClientProvider {
     Anthropic(AnthropicProvider),
     #[cfg(feature = "bedrock")] 
     Bedrock(BedrockProvider),
-    #[cfg(feature = "vertex")] 
-    Vertex(VertexProvider),
 }
 
 impl ClaudeClientProvider {
@@ -28,8 +27,15 @@ impl ClaudeClientProvider {
             Self::Anthropic(provider) => provider.call_api(request).await,
             #[cfg(feature = "bedrock")] 
             Self::Bedrock(provider) => provider.call_api(request).await,
-            #[cfg(feature = "vertex")] 
-            Self::Vertex(provider) => provider.call_api(request).await,
+        }
+    }
+
+    async fn stream_api(&self, request: &ClaudeRequest) -> Result<std::pin::Pin<Box<dyn futures_core::Stream<Item = Result<bytes::Bytes, AIError>> + Send>>, AIError> {
+        match self {
+            #[cfg(feature = "anthropic")] 
+            Self::Anthropic(provider) => provider.stream_api(request).await,
+            #[cfg(feature = "bedrock")] 
+            Self::Bedrock(_) => Err(AIError::Claude(crate::error::ClaudeError::Api("Bedrock streaming not implemented".into()))),
         }
     }
 }
@@ -58,8 +64,6 @@ impl ClaudeClient {
             Provider::Anthropic => ClaudeClientProvider::Anthropic(AnthropicProvider::new(config.clone())),
             #[cfg(feature = "bedrock")] 
             Provider::AwsBedrock => ClaudeClientProvider::Bedrock(BedrockProvider::new(config.clone())),
-            #[cfg(feature = "vertex")] 
-            Provider::GcpVertex => ClaudeClientProvider::Vertex(VertexProvider::new(config.clone())),
             #[allow(unreachable_patterns)]
             _ => panic!("Requested provider is not enabled via features"),
         };
@@ -73,6 +77,20 @@ impl LowLevelClient for ClaudeClient {
     async fn ask_raw(&self, prompt: String) -> Result<String, AIError> {
         let request = ClaudeRequest::new(prompt, &self.config);
         self.provider.call_api(&request).await
+    }
+
+    fn stream_raw(&self, prompt: String) -> Option<std::pin::Pin<Box<dyn futures_core::Stream<Item = Result<bytes::Bytes, AIError>> + Send>>> {
+        let config = self.config.clone();
+        let provider = self.provider.clone();
+        let s = async_stream::try_stream! {
+            let request = ClaudeRequest::new(prompt, &config);
+            let mut bs = provider.stream_api(&request).await?;
+            while let Some(chunk) = bs.next().await {
+                let b = chunk?;
+                yield b;
+            }
+        };
+        Some(Box::pin(s.map_err(|e| e)))
     }
 
     fn clone_box(&self) -> Box<dyn LowLevelClient> {

@@ -1,4 +1,7 @@
 use crate::core::{LowLevelClient};
+use bytes::Bytes;
+use futures_core::Stream;
+use futures_util::{StreamExt, TryStreamExt};
 use crate::config::KeyFromEnv;
 use crate::error::{AIError, DeepSeekError};
 use async_trait::async_trait;
@@ -169,5 +172,38 @@ impl LowLevelClient for DeepSeekClient {
     
     fn clone_box(&self) -> Box<dyn LowLevelClient> {
         Box::new(self.clone())
+    }
+
+    fn stream_raw(&self, prompt: String) -> Option<std::pin::Pin<Box<dyn Stream<Item = Result<Bytes, AIError>> + Send>>> {
+        let body = serde_json::json!({
+            "model": self.config.model,
+            "max_tokens": self.config.max_tokens,
+            "temperature": self.config.temperature,
+            "stream": true,
+            "messages": [{"role":"user","content": prompt}],
+        });
+        let req = self.client
+            .post("https://api.deepseek.com/v1/chat/completions")
+            .header("Authorization", format!("Bearer {}", self.config.api_key))
+            .header("Content-Type", "application/json")
+            .json(&body);
+        let fut = async move {
+            let resp = req.send().await.map_err(|e| AIError::DeepSeek(DeepSeekError::Http(e.to_string())))?;
+            if resp.status() == 429 { return Err(AIError::DeepSeek(DeepSeekError::RateLimit)); }
+            if resp.status() == 401 { return Err(AIError::DeepSeek(DeepSeekError::Authentication)); }
+            if !resp.status().is_success() {
+                let txt = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+                return Err(AIError::DeepSeek(DeepSeekError::Api(txt)));
+            }
+            Ok(resp.bytes_stream().map(|r| r.map_err(|e| AIError::DeepSeek(DeepSeekError::Http(e.to_string())))))
+        };
+        let s = async_stream::try_stream! {
+            let mut bytes_stream = fut.await?;
+            while let Some(chunk) = bytes_stream.next().await {
+                let b = chunk?;
+                yield b;
+            }
+        };
+        Some(Box::pin(s.map_err(|e| e)))
     }
 }

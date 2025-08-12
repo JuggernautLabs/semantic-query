@@ -14,7 +14,7 @@ thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", features = ["json", "stream"] }
 async-trait = "0.1"
 tracing = "0.1"
 dotenvy = "0.15"
@@ -26,6 +26,8 @@ chrono = { version = "0.4", features = ["serde"] }
 async-stream = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
+bytes = "1"
+tokio-util = { version = "0.7", features = ["io"] }
 
 [dev-dependencies]
 
@@ -33,5 +35,4 @@ futures-util = "0.3"
 default = ["anthropic", "deepseek"]
 anthropic = []
 bedrock = []
-vertex = []
 deepseek = []

@@ -2,18 +2,17 @@
 pub mod anthropic;
 #[cfg(feature = "bedrock")]
 pub mod bedrock;
-#[cfg(feature = "vertex")]
-pub mod vertex;
 
 #[cfg(feature = "anthropic")]
 pub use anthropic::*;
 #[cfg(feature = "bedrock")]
 pub use bedrock::*;
-#[cfg(feature = "vertex")]
-pub use vertex::*;
 
 use crate::error::AIError;
 use async_trait::async_trait;
+use bytes::Bytes;
+use futures_core::Stream;
+use futures_util::{StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use super::config::ClaudeConfig;
 
@@ -92,4 +91,7 @@ impl ClaudeRequest {
 #[async_trait]
 pub trait ClaudeProvider: Send + Sync {
     async fn call_api(&self, request: &ClaudeRequest) -> Result<String, AIError>;
+    async fn stream_api(&self, _request: &ClaudeRequest) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<Bytes, AIError>> + Send>>, AIError> {
+        Err(AIError::Claude(crate::error::ClaudeError::Api("Streaming not implemented for this provider".into())))
+    }
 }

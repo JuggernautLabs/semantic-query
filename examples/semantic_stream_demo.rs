@@ -22,7 +22,10 @@ Trailing text
     let items: Vec<ParsedOrUnknown<Finding>> = deserialize_stream_map::<Finding>(blob);
     for (idx, item) in items.into_iter().enumerate() {
         match item {
-            ParsedOrUnknown::Parsed(f) => println!("{}: Parsed => {:?}", idx, f),
+            ParsedOrUnknown::Parsed(f) => println!(
+                "{}: Parsed => message='{}', severity='{}'",
+                idx, f.message, f.severity
+            ),
             ParsedOrUnknown::Unknown(coords) => println!(
                 "{}: Unknown => kind={:?} span=[{}..={}]",
                 idx, coords.kind, coords.start, coords.end

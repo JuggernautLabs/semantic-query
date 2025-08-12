@@ -13,9 +13,12 @@ use crate::semantic::SemanticItem;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::pin::Pin;
 use async_trait::async_trait;
 use tracing::{info, warn, error, debug, instrument};
 use schemars::{JsonSchema, schema_for};
+use futures_core::Stream;
+use bytes::Bytes;
 
 /// Low-level model client abstraction.
 ///
@@ -29,6 +32,10 @@ pub trait LowLevelClient: Send + Sync + Debug{
     
     /// Clone this client into a boxed trait object
     fn clone_box(&self) -> Box<dyn LowLevelClient>;
+
+    /// Optional: provide a streaming raw response as chunks of bytes.
+    /// Default is None; providers can override to implement true streaming.
+    fn stream_raw(&self, _prompt: String) -> Option<Pin<Box<dyn Stream<Item = Result<Bytes, AIError>> + Send>>> { None }
 }
 
 // Implement Clone for Box<dyn LowLevelClient>
@@ -47,6 +54,10 @@ impl LowLevelClient for Box<dyn LowLevelClient> {
     
     fn clone_box(&self) -> Box<dyn LowLevelClient> {
         self.as_ref().clone_box()
+    }
+
+    fn stream_raw(&self, prompt: String) -> Option<Pin<Box<dyn Stream<Item = Result<Bytes, AIError>> + Send>>> {
+        self.as_ref().stream_raw(prompt)
     }
 }
 

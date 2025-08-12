@@ -1,11 +1,16 @@
 use crate::clients::{ClaudeConfig, DeepSeekConfig};
 use crate::core::{LowLevelClient};
+use bytes::Bytes;
+use futures_util::StreamExt;
 use crate::error::{AIError};
 use crate::interceptors::{FileInterceptor, Interceptor};
 use async_trait::async_trait;
 use std::env;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use tokio_util::io::StreamReader;
+use tokio::io::AsyncRead;
+use std::pin::Pin;
 
 
 /// Client type for lazy initialization
@@ -13,6 +18,7 @@ use std::sync::{Arc, Mutex};
 pub enum ClientType {
     Claude,
     DeepSeek,
+    OpenAI,
     Mock,
 }
 
@@ -26,6 +32,10 @@ impl Into<Box<dyn LowLevelClient>> for ClientType {
             ClientType::DeepSeek => {
                 use super::deepseek::DeepSeekClient;
                 Box::new(DeepSeekClient::default())
+            }
+            ClientType::OpenAI => {
+                use super::openai::OpenAIClient;
+                Box::new(OpenAIClient::new(super::openai::OpenAIConfig::default()))
             }
             ClientType::Mock => {
                 // Note: This creates a mock without a controllable handle
@@ -49,6 +59,9 @@ impl Default for ClientType {
         } else if env::var("DEEPSEEK_API_KEY").is_ok() || 
                  std::fs::read_to_string(".env").map_or(false, |content| content.contains("DEEPSEEK_API_KEY")) {
             Self::DeepSeek
+        } else if env::var("OPENAI_API_KEY").is_ok() || 
+                 std::fs::read_to_string(".env").map_or(false, |content| content.contains("OPENAI_API_KEY")) {
+            Self::OpenAI
         } else {
             Self::Mock
         }
@@ -60,6 +73,7 @@ impl ClientType {
         match s.to_lowercase().as_str() {
             "claude" => Ok(Self::Claude),
             "deepseek" => Ok(Self::DeepSeek),
+            "openai" => Ok(Self::OpenAI),
             "mock" => Ok(Self::Mock),
             _ => Err(format!("Unknown client type: '{}'. Supported: claude, deepseek, mock", s))
         }
@@ -79,6 +93,7 @@ impl std::fmt::Display for ClientType {
         match self {
             ClientType::Claude => write!(f, "Claude"),
             ClientType::DeepSeek => write!(f, "DeepSeek"),
+            ClientType::OpenAI => write!(f, "OpenAI"),
             ClientType::Mock => write!(f, "Mock"),
         }
     }
@@ -159,6 +174,36 @@ impl FlexibleClient {
     pub fn into_inner(self) -> Result<Box<dyn LowLevelClient>, AIError> {
         let inner = self.inner.lock().unwrap().clone_box();
         Ok(inner)
+    }
+
+    /// Get a streaming reader for the raw model output.
+    /// If the underlying client does not support true streaming, this will
+    /// fallback to a one-shot response written into a duplex stream.
+    pub fn stream_raw_reader(&self, prompt: String) -> Pin<Box<dyn AsyncRead + Send>> {
+        // Try streaming first
+        let client = {
+            let inner = self.inner.lock().unwrap();
+            inner.as_ref().clone_box()
+        };
+        if let Some(stream) = client.stream_raw(prompt.clone()) {
+            // Map AIError to io::Error
+            let io_stream = stream.map(|res| match res {
+                Ok(bytes) => Ok::<Bytes, std::io::Error>(bytes),
+                Err(e) => Err(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
+            });
+            let reader = StreamReader::new(io_stream);
+            return Box::pin(reader);
+        }
+
+        // Fallback: one-shot ask_raw() written to a duplex
+        let (mut tx, rx) = tokio::io::duplex(8 * 1024);
+        tokio::spawn(async move {
+            if let Ok(text) = client.ask_raw(prompt).await {
+                use tokio::io::AsyncWriteExt;
+                let _ = tx.write_all(text.as_bytes()).await;
+            }
+        });
+        Box::pin(rx)
     }
 }
 

@@ -6,6 +6,9 @@ use tracing::{debug, error, info, instrument, warn};
 
 use super::{ClaudeProvider, ClaudeRequest, ClaudeResponse};
 use crate::clients::claude::config::ClaudeConfig;
+use bytes::Bytes;
+use futures_core::Stream;
+use futures_util::StreamExt;
 
 #[derive(Clone, Debug)]
 pub struct AnthropicProvider {
@@ -97,5 +100,38 @@ impl ClaudeProvider for AnthropicProvider {
         }
 
         result
+    }
+
+    async fn stream_api(&self, request: &ClaudeRequest) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<Bytes, AIError>> + Send>>, AIError> {
+        let resp = self
+            .client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", &self.config.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&serde_json::json!({
+                "model": request.model,
+                "max_tokens": request.max_tokens,
+                "messages": request.messages,
+                "stream": true
+            }))
+            .send()
+            .await
+            .map_err(|e| AIError::Claude(crate::error::ClaudeError::Http(e.to_string())))?;
+
+        if resp.status() == 401 { return Err(AIError::Claude(crate::error::ClaudeError::Authentication)); }
+        if resp.status() == 429 { return Err(AIError::Claude(crate::error::ClaudeError::RateLimit)); }
+        if !resp.status().is_success() {
+            let txt = resp.text().await.unwrap_or_else(|_| "Unknown error".into());
+            return Err(AIError::Claude(crate::error::ClaudeError::Api(txt)));
+        }
+        let s = async_stream::try_stream! {
+            let mut bs = resp.bytes_stream().map(|r| r.map_err(|e| AIError::Claude(crate::error::ClaudeError::Http(e.to_string()))));
+            while let Some(chunk) = bs.next().await {
+                let b = chunk?;
+                yield b;
+            }
+        };
+        Ok(Box::pin(s))
     }
 }

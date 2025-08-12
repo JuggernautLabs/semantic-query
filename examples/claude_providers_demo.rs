@@ -50,6 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Example 2: Easy provider switching
     println!("🔄 Easy provider switching with builder pattern:");
+    #[cfg(any(feature = "bedrock", feature = "vertex"))]
     let base_config = ClaudeConfig::new(Provider::Anthropic, ClaudeModel::Sonnet4);
     
     // Switch to Bedrock
