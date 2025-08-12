@@ -1,4 +1,5 @@
 use crate::core::LowLevelClient;
+use super::openai::models::OpenAIModel;
 use crate::error::{AIError, OpenAIError};
 use async_trait::async_trait;
 // no streaming for OpenAI in this demo
@@ -9,7 +10,7 @@ use tracing::{instrument};
 #[derive(Debug, Clone)]
 pub struct OpenAIConfig {
     pub api_key: String,
-    pub model: String,
+    pub model: OpenAIModel,
     pub max_tokens: u32,
     pub temperature: f32,
 }
@@ -18,7 +19,7 @@ impl Default for OpenAIConfig {
     fn default() -> Self {
         Self {
             api_key: std::env::var("OPENAI_API_KEY").unwrap_or_default(),
-            model: "gpt-4o-mini".to_string(),
+            model: OpenAIModel::default(),
             max_tokens: 1024,
             temperature: 0.2,
         }
@@ -38,7 +39,7 @@ impl OpenAIClient {
 
     fn messages_body(&self, prompt: String) -> serde_json::Value {
         serde_json::json!({
-            "model": self.config.model,
+            "model": self.config.model.id(),
             "max_tokens": self.config.max_tokens,
             "temperature": self.config.temperature,
             "messages": [
@@ -54,7 +55,7 @@ impl OpenAIClient {
 
 #[async_trait]
 impl LowLevelClient for OpenAIClient {
-    #[instrument(skip(self, prompt), fields(model = %self.config.model))]
+    #[instrument(skip(self, prompt), fields(model = %self.config.model.id()))]
     async fn ask_raw(&self, prompt: String) -> Result<String, AIError> {
         let body = self.messages_body(prompt);
         let resp = self.http
