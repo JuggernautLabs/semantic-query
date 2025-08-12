@@ -8,8 +8,6 @@ pub enum Provider {
     Anthropic,
     #[cfg(feature = "bedrock")] 
     AwsBedrock,
-    #[cfg(feature = "vertex")] 
-    GcpVertex,
 }
 
 impl Default for Provider {
@@ -30,10 +28,6 @@ pub struct ClaudeConfig {
     pub aws_region: Option<String>,
     pub aws_access_key_id: Option<String>,
     pub aws_secret_access_key: Option<String>,
-    // GCP Vertex specific
-    pub gcp_project_id: Option<String>,
-    pub gcp_location: Option<String>,
-    pub gcp_credentials_path: Option<String>,
 }
 
 impl Default for ClaudeConfig {
@@ -49,9 +43,6 @@ impl Default for ClaudeConfig {
             aws_region: None,
             aws_access_key_id: None,
             aws_secret_access_key: None,
-            gcp_project_id: None,
-            gcp_location: None,
-            gcp_credentials_path: None,
         }
     }
 }
@@ -81,17 +72,6 @@ impl ClaudeConfig {
             provider: Provider::AwsBedrock,
             model,
             aws_region: Some(aws_region),
-            ..Default::default()
-        }
-    }
-
-    #[cfg(feature = "vertex")] 
-    pub fn vertex(project_id: String, location: String, model: ClaudeModel) -> Self {
-        Self {
-            provider: Provider::GcpVertex,
-            model,
-            gcp_project_id: Some(project_id),
-            gcp_location: Some(location),
             ..Default::default()
         }
     }

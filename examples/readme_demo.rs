@@ -2,7 +2,7 @@
 
 use serde::{Deserialize};
 use schemars::JsonSchema;
-use semantic_query::{clients::{flexible::FlexibleClient, ClaudeConfig, DeepSeekConfig}, core::{QueryResolver, RetryConfig}};
+use semantic_query::{clients::{flexible::FlexibleClient, deepseek::DeepSeekConfig}, core::{QueryResolver, RetryConfig}};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct QuizQuestion {

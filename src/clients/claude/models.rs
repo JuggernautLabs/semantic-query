@@ -53,28 +53,12 @@ impl ClaudeModel {
         }
     }
 
-    pub fn vertex_model_id(&self) -> &'static str {
-        match self {
-            Self::Opus4 => "claude-opus-4@20250514",
-            Self::Sonnet4 => "claude-sonnet-4@20250514",
-            Self::Sonnet37 => "claude-3-7-sonnet@20250219",
-            Self::Haiku35 => "claude-3-5-haiku@20241022",
-            Self::Sonnet35V2 => "claude-3-5-sonnet-v2@20241022",
-            Self::Sonnet35 => "claude-3-5-sonnet@20240620",
-            Self::Opus3 => "claude-3-opus@20240229",
-            Self::Sonnet3 => "claude-3-sonnet@20240229",
-            Self::Haiku3 => "claude-3-haiku@20240307",
-        }
-    }
-
     pub fn model_id_for_provider(&self, provider: &super::config::Provider) -> &'static str {
         match provider {
             #[cfg(feature = "anthropic")] 
             super::config::Provider::Anthropic => self.anthropic_model_id(),
             #[cfg(feature = "bedrock")] 
             super::config::Provider::AwsBedrock => self.bedrock_model_id(),
-            #[cfg(feature = "vertex")] 
-            super::config::Provider::GcpVertex => self.vertex_model_id(),
         }
     }
 

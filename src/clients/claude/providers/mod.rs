@@ -12,7 +12,6 @@ use crate::error::AIError;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures_core::Stream;
-use futures_util::{StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use super::config::ClaudeConfig;
 

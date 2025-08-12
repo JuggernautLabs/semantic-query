@@ -332,12 +332,13 @@ Do not include any text outside the JSON array. No code fences.
     /// Example (synthetic stream):
     /// ```no_run
     /// use tokio::io::{duplex, AsyncWriteExt};
-    /// use futures_core::StreamExt;
+    /// use futures_util::{StreamExt, pin_mut};
     /// use semantic_query::core::{QueryResolver, RetryConfig};
     /// use semantic_query::semantic::{SemanticItem};
     /// use serde::Deserialize;
+    /// use schemars::JsonSchema;
     ///
-    /// #[derive(Deserialize)]
+    /// #[derive(Deserialize, JsonSchema)]
     /// struct Finding { message: String }
     ///
     /// # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
@@ -347,8 +348,9 @@ Do not include any text outside the JSON array. No code fences.
     ///     let _ = tx.write_all(br#"{"message":"world"}"#).await;
     /// });
     /// let resolver = QueryResolver::new(semantic_query::clients::mock::MockVoid, RetryConfig::default());
-    /// let mut stream = resolver.query_semantic_stream::<Finding,_>(rx, 1024);
-    /// while let Some(item) = stream.next().await {
+    /// let s = resolver.query_semantic_stream::<Finding,_>(rx, 1024);
+    /// pin_mut!(s);
+    /// while let Some(item) = s.next().await {
     ///     match item { SemanticItem::Text(t) => println!("text: {}", t.text), SemanticItem::Data(d) => println!("data: {}", d.message), }
     /// }
     /// # Ok(()) }

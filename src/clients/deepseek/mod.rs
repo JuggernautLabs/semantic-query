@@ -1,5 +1,5 @@
-use crate::core::{LowLevelClient};
-use crate::clients::deepseek_models::DeepSeekModel;
+use crate::core::LowLevelClient;
+use crate::clients::deepseek::models::DeepSeekModel;
 use bytes::Bytes;
 use futures_core::Stream;
 use futures_util::{StreamExt, TryStreamExt};
@@ -208,3 +208,4 @@ impl LowLevelClient for DeepSeekClient {
         Some(Box::pin(s.map_err(|e| e)))
     }
 }
+pub mod models;

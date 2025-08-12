@@ -1,4 +1,5 @@
-use crate::clients::{ClaudeConfig, DeepSeekConfig};
+use crate::clients::claude::ClaudeConfig;
+use crate::clients::deepseek::DeepSeekConfig;
 use crate::core::{LowLevelClient};
 use bytes::Bytes;
 use futures_util::StreamExt;
@@ -18,7 +19,7 @@ use std::pin::Pin;
 pub enum ClientType {
     Claude,
     DeepSeek,
-    OpenAI,
+    ChatGPT,
     Mock,
 }
 
@@ -33,9 +34,17 @@ impl Into<Box<dyn LowLevelClient>> for ClientType {
                 use super::deepseek::DeepSeekClient;
                 Box::new(DeepSeekClient::default())
             }
-            ClientType::OpenAI => {
-                use super::openai::OpenAIClient;
-                Box::new(OpenAIClient::new(super::openai::OpenAIConfig::default()))
+            ClientType::ChatGPT => {
+                // Prefer Azure OpenAI if endpoint/key present; else plain OpenAI
+                let use_azure = env::var("AZURE_OPENAI_ENDPOINT").is_ok() ||
+                    std::fs::read_to_string(".env").map_or(false, |c| c.contains("AZURE_OPENAI_ENDPOINT"));
+                if use_azure {
+                    use super::chatgpt::AzureOpenAIClient;
+                    Box::new(AzureOpenAIClient::new(super::chatgpt::AzureOpenAIConfig::default()))
+                } else {
+                    use super::chatgpt::OpenAIClient;
+                    Box::new(OpenAIClient::new(super::chatgpt::OpenAIConfig::default()))
+                }
             }
             ClientType::Mock => {
                 // Note: This creates a mock without a controllable handle
@@ -61,7 +70,7 @@ impl Default for ClientType {
             Self::DeepSeek
         } else if env::var("OPENAI_API_KEY").is_ok() || 
                  std::fs::read_to_string(".env").map_or(false, |content| content.contains("OPENAI_API_KEY")) {
-            Self::OpenAI
+            Self::ChatGPT
         } else {
             Self::Mock
         }
@@ -73,7 +82,7 @@ impl ClientType {
         match s.to_lowercase().as_str() {
             "claude" => Ok(Self::Claude),
             "deepseek" => Ok(Self::DeepSeek),
-            "openai" => Ok(Self::OpenAI),
+            "openai" | "chatgpt" => Ok(Self::ChatGPT),
             "mock" => Ok(Self::Mock),
             _ => Err(format!("Unknown client type: '{}'. Supported: claude, deepseek, mock", s))
         }
@@ -93,7 +102,7 @@ impl std::fmt::Display for ClientType {
         match self {
             ClientType::Claude => write!(f, "Claude"),
             ClientType::DeepSeek => write!(f, "DeepSeek"),
-            ClientType::OpenAI => write!(f, "OpenAI"),
+            ClientType::ChatGPT => write!(f, "ChatGPT"),
             ClientType::Mock => write!(f, "Mock"),
         }
     }

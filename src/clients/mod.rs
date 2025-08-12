@@ -2,12 +2,14 @@ pub mod claude;
 pub mod deepseek;
 pub mod flexible;
 pub mod mock;
-pub mod openai;
-pub mod openai_models; 
-pub mod deepseek_models;
+pub mod chatgpt;
 
-pub use claude::*;
-pub use deepseek::*;
-pub use flexible::*;
-pub use mock::*;
-pub use openai::*;
+// Re-export only the public surface needed by consumers to avoid ambiguous glob re-exports
+pub use claude::{ClaudeClient, ClaudeConfig};
+pub use claude::models::ClaudeModel;
+pub use deepseek::DeepSeekClient;
+pub use deepseek::models::DeepSeekModel;
+pub use flexible::{FlexibleClient, ClientType};
+pub use mock::{MockClient, MockHandle, MockResponse, MockVoid};
+pub use chatgpt::{OpenAIClient, OpenAIConfig, AzureOpenAIClient, AzureOpenAIConfig};
+pub use chatgpt::models::OpenAIModel;

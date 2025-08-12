@@ -1,6 +1,6 @@
-#![cfg(any(feature = "bedrock", feature = "vertex", feature = "anthropic"))]
+#![cfg(any(feature = "bedrock", feature = "anthropic"))]
 
-use semantic_query::clients::claude::{ClaudeClient, ClaudeConfig, Provider, ClaudeModel};
+use semantic_query::clients::claude::{ClaudeClient, ClaudeConfig, ClaudeModel};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
@@ -34,23 +34,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("   Provider: AWS Bedrock\n");
     }
     
-    // GCP Vertex AI - Same model, different provider
-    #[cfg(feature = "vertex")]
-    {
-        println!("3. GCP Vertex AI:");
-        let vertex_config = ClaudeConfig::vertex(
-            "my-project".to_string(),
-            "us-central1".to_string(),
-            ClaudeModel::Opus4  // Same model!
-        );
-        let _vertex_client = ClaudeClient::new(vertex_config.clone());
-        println!("   Model: {} ({})", ClaudeModel::Opus4.display_name(), vertex_config.get_model_for_provider());
-        println!("   Provider: GCP Vertex AI\n");
-    }
-    
     // Example 2: Easy provider switching
     println!("🔄 Easy provider switching with builder pattern:");
-    #[cfg(any(feature = "bedrock", feature = "vertex"))]
+    #[cfg(feature = "bedrock")]
     let base_config = ClaudeConfig::new(Provider::Anthropic, ClaudeModel::Sonnet4);
     
     // Switch to Bedrock
@@ -60,15 +46,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_provider(Provider::AwsBedrock)
             .with_model(ClaudeModel::Sonnet4);  // Same model
         println!("   Switched to Bedrock: {}", bedrock_config.get_model_for_provider());
-    }
-    
-    // Switch to Vertex
-    #[cfg(feature = "vertex")]
-    {
-        let vertex_config = base_config.clone()
-            .with_provider(Provider::GcpVertex)
-            .with_model(ClaudeModel::Sonnet4);  // Same model
-        println!("   Switched to Vertex: {}", vertex_config.get_model_for_provider());
     }
     
     // Example 3: All available models
@@ -86,11 +63,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
     
     for model in &models {
-        println!("   {} - Anthropic: {}, Bedrock: {}, Vertex: {}", 
+        println!("   {} - Anthropic: {}, Bedrock: {}", 
             model.display_name(),
             model.anthropic_model_id(),
-            model.bedrock_model_id(),
-            model.vertex_model_id()
+            model.bedrock_model_id()
         );
     }
     

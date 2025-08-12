@@ -1,28 +1,20 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum DeepSeekModel {
-    Chat,
-    Reasoner,
+    Chat,        // "deepseek-chat"
+    Reasoner,    // "deepseek-reasoner"
     Override(String),
 }
 
 impl Default for DeepSeekModel {
-    fn default() -> Self { Self::Chat }
+    fn default() -> Self { DeepSeekModel::Chat }
 }
 
 impl DeepSeekModel {
     pub fn id(&self) -> &str {
         match self {
-            Self::Chat => "deepseek-chat",
-            Self::Reasoner => "deepseek-reasoner",
-            Self::Override(s) => s.as_str(),
-        }
-    }
-
-    pub fn display_name(&self) -> &str {
-        match self {
-            Self::Chat => "DeepSeek Chat",
-            Self::Reasoner => "DeepSeek Reasoner",
-            Self::Override(_) => "DeepSeek (override)",
+            DeepSeekModel::Chat => "deepseek-chat",
+            DeepSeekModel::Reasoner => "deepseek-reasoner",
+            DeepSeekModel::Override(s) => s.as_str(),
         }
     }
 }
