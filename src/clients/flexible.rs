@@ -95,7 +95,7 @@ pub struct FlexibleClient {
 
 impl FlexibleClient {
     /// Create a new FlexibleClient with lazy initialization
-    pub fn new_lazy(client_type: ClientType) -> Self {
+    pub fn new_type(client_type: ClientType) -> Self {
        
         Self { 
             inner: Arc::new(Mutex::new(client_type.into())),

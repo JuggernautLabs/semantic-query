@@ -1,233 +1,349 @@
-use serde::{Serialize, Deserialize};
-use tracing::debug;
-use regex::Regex;
+use serde::{Serialize, Deserialize, de::DeserializeOwned};
+use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::sync::mpsc;
+use async_stream::stream;
+use futures_core::stream::Stream;
+use tracing::{debug, trace, instrument};
 
+// All older sanitization/extraction helpers removed in favor of streaming parser.
+
+// =============== Streaming JSON structure discovery ===============
+
+/// Type of a JSON node found by the stream parser.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum NodeType {
+    Object,
+    Array,
+}
+
+/// Coordinates of a JSON structure within a larger text, including nested children.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ClientResponse {
-    /// The raw response from the AI model
-    pub raw: String,
-    /// Text segments that couldn't be parsed as JSON
-    pub segmented: Vec<String>,
-    /// The extracted JSON response, if any
-    pub json_response: Option<String>,
-    /// Time taken to process the response in milliseconds
-    pub processing_time_ms: u64,
-    /// Whether JSON extraction was successful
-    pub json_extraction_successful: bool,
-    /// Method used to extract JSON (markdown, advanced, line_by_line, raw)
-    pub extraction_method: String,
+pub struct ObjCoords {
+    pub start: usize,
+    pub end: usize, // inclusive index of the closing bracket/brace
+    pub kind: NodeType,
+    pub children: Vec<ObjCoords>,
 }
 
-impl ClientResponse {
-    pub fn new(raw: String, processing_time_ms: u64) -> Self {
-        Self {
-            raw,
-            segmented: Vec::new(),
-            json_response: None,
-            processing_time_ms,
-            json_extraction_successful: false,
-            extraction_method: "none".to_string(),
-        }
+impl ObjCoords {
+    pub fn new(start: usize, end: usize, kind: NodeType, children: Vec<ObjCoords>) -> Self {
+        Self { start, end, kind, children }
     }
 }
 
-/// Process a raw response and extract JSON with metadata
-pub fn process_response(raw_response: String, processing_time_ms: u64) -> ClientResponse {
-    debug!(response_len = raw_response.len(), "Processing response to extract JSON");
-    
-    let start_time = std::time::Instant::now();
-    let mut response = ClientResponse::new(raw_response.clone(), processing_time_ms);
-    
-    // First try to extract JSON from markdown code blocks
-    if let Some(json_content) = extract_json_from_markdown(&raw_response) {
-        debug!(extracted_len = json_content.len(), "Successfully extracted JSON from markdown");
-        response.json_response = Some(json_content);
-        response.json_extraction_successful = true;
-        response.extraction_method = "markdown".to_string();
-        response.segmented = segment_non_json_content(&raw_response, response.json_response.as_ref().unwrap());
-        return response;
-    }
-    
-    // Try advanced JSON extraction
-    if let Some(json_content) = extract_json_advanced(&raw_response) {
-        debug!(extracted_len = json_content.len(), "Successfully extracted JSON using advanced method");
-        response.json_response = Some(json_content);
-        response.json_extraction_successful = true;
-        response.extraction_method = "advanced".to_string();
-        response.segmented = segment_non_json_content(&raw_response, response.json_response.as_ref().unwrap());
-        return response;
-    }
-    
-    // If no JSON found, segment the entire response
-    debug!("No JSON found, treating entire response as segmented content");
-    response.segmented = vec![raw_response.clone()];
-    response.json_response = Some(raw_response.clone()); // Fallback for backward compatibility
-    response.extraction_method = "raw".to_string();
-    
-    let processing_end = std::time::Instant::now();
-    response.processing_time_ms += processing_end.duration_since(start_time).as_millis() as u64;
-    
-    response
+#[derive(Debug)]
+struct Frame {
+    start: usize,
+    kind: NodeType,
+    children: Vec<ObjCoords>,
 }
 
-/// Split the raw response into segments, excluding the JSON content
-pub fn segment_non_json_content(raw_response: &str, json_content: &str) -> Vec<String> {
-    if let Some(json_start) = raw_response.find(json_content) {
-        let mut segments = Vec::new();
-        
-        // Add content before JSON
-        let before = &raw_response[..json_start].trim();
-        if !before.is_empty() {
-            segments.push(before.to_string());
-        }
-        
-        // Add content after JSON
-        let after_start = json_start + json_content.len();
-        if after_start < raw_response.len() {
-            let after = &raw_response[after_start..].trim();
-            if !after.is_empty() {
-                segments.push(after.to_string());
-            }
-        }
-        
-        segments
-    } else {
-        // If JSON not found in raw response, return the whole response as segment
-        vec![raw_response.to_string()]
-    }
-}
+/// Find all JSON object/array structures in the given text. Coordinates are byte indices.
+#[instrument(target = "semantic_query::json_stream", skip(text))]
+pub fn find_json_structures(text: &str) -> Vec<ObjCoords> {
+    let bytes = text.as_bytes();
+    let mut results: Vec<ObjCoords> = Vec::new();
+    let mut stack: Vec<Frame> = Vec::new();
 
-/// Backward compatibility method - just return the JSON part
-pub fn find_json(response: &str) -> String {
-    let client_response = process_response(response.to_string(), 0);
-    client_response.json_response.unwrap_or_else(|| response.to_string())
-}
-
-/// Advanced JSON extraction that searches for valid JSON objects in the response
-pub fn extract_json_advanced(response: &str) -> Option<String> {
-    debug!("Starting advanced JSON extraction");
-    
-    // Find all positions where '{' appears
-    let open_positions: Vec<usize> = response.char_indices()
-        .filter_map(|(i, c)| if c == '{' { Some(i) } else { None })
-        .collect();
-    
-    if open_positions.is_empty() {
-        debug!("No opening braces found in response");
-        return None;
-    }
-    
-    // Try each opening brace position
-    for &start_pos in &open_positions {
-        debug!(start_pos = start_pos, "Trying JSON extraction from position");
-        
-        if let Some(json_str) = find_matching_json_object(&response[start_pos..]) {
-            let full_json = &response[start_pos..start_pos + json_str.len()];
-            
-            // Test if this is valid JSON by attempting to parse it
-            if serde_json::from_str::<serde_json::Value>(full_json).is_ok() {
-                debug!(json_len = full_json.len(), "Found valid JSON object");
-                return Some(full_json.to_string());
-            }
-        }
-    }
-    
-    // Try line-by-line approach as fallback
-    debug!("Trying line-by-line JSON extraction");
-    try_line_by_line_json(response)
-}
-
-/// Find a complete JSON object starting from the given text
-pub fn find_matching_json_object(text: &str) -> Option<String> {
-    let mut brace_count = 0;
     let mut in_string = false;
-    let mut escape_next = false;
-    let chars = text.char_indices();
-    
-    // Skip to first '{'
-    if !text.starts_with('{') {
-        return None;
-    }
-    
-    for (i, c) in chars {
-        if escape_next {
-            escape_next = false;
+    let mut escape = false;
+
+    for (i, &b) in bytes.iter().enumerate() {
+        if in_string {
+            if escape {
+                escape = false;
+                continue;
+            }
+            match b {
+                b'\\' => escape = true,
+                b'"' => in_string = false,
+                _ => {}
+            }
             continue;
         }
-        
-        match c {
-            '\\' if in_string => escape_next = true,
-            '"' => in_string = !in_string,
-            '{' if !in_string => brace_count += 1,
-            '}' if !in_string => {
-                brace_count -= 1;
-                if brace_count == 0 {
-                    // Found complete JSON object
-                    return Some(&text[..=i]).map(|s| s.to_string());
+
+        match b {
+            b'"' => in_string = true,
+            b'{' => stack.push(Frame { start: i, kind: NodeType::Object, children: Vec::new() }),
+            b'[' => stack.push(Frame { start: i, kind: NodeType::Array, children: Vec::new() }),
+            b'}' => {
+                if let Some(frame) = stack.pop() {
+                    if frame.kind == NodeType::Object {
+                        let node = ObjCoords::new(frame.start, i, NodeType::Object, frame.children);
+                        if let Some(parent) = stack.last_mut() {
+                            parent.children.push(node);
+                        } else {
+                            results.push(node);
+                        }
+                    } else {
+                        // Unbalanced brace
+                    }
+                }
+            }
+            b']' => {
+                if let Some(frame) = stack.pop() {
+                    if frame.kind == NodeType::Array {
+                        let node = ObjCoords::new(frame.start, i, NodeType::Array, frame.children);
+                        if let Some(parent) = stack.last_mut() {
+                            parent.children.push(node);
+                        } else {
+                            results.push(node);
+                        }
+                    } else {
+                        // Unbalanced bracket
+                    }
                 }
             }
             _ => {}
         }
     }
-    
-    None
+
+    debug!(target = "semantic_query::json_stream", count = results.len(), "found root structures");
+    results
 }
 
-/// Try to find JSON by testing each line that starts with '{'
-pub fn try_line_by_line_json(response: &str) -> Option<String> {
-    let lines: Vec<&str> = response.lines().collect();
-    
-    for (i, line) in lines.iter().enumerate() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('{') {
-            debug!(line_num = i + 1, "Testing line starting with opening brace");
-            
-            // Try this single line first
-            if serde_json::from_str::<serde_json::Value>(trimmed).is_ok() {
-                debug!(line_num = i + 1, "Found valid single-line JSON");
-                return Some(trimmed.to_string());
+/// Stateful incremental stream parser that can be fed chunks and yields closed root nodes per feed.
+#[derive(Debug, Default)]
+pub struct JsonStreamParser {
+    stack: Vec<Frame>,
+    in_string: bool,
+    escape: bool,
+    /// Absolute offset (bytes) from the beginning of the full stream to the start of current chunk
+    offset: usize,
+}
+
+impl JsonStreamParser {
+    pub fn new() -> Self { Self::default() }
+
+    /// Feed a new chunk. Returns any fully-closed root nodes found in this chunk.
+    #[instrument(target = "semantic_query::json_stream", skip(self, chunk), fields(chunk_len = chunk.len(), offset = self.offset))]
+    pub fn feed(&mut self, chunk: &str) -> Vec<ObjCoords> {
+        let bytes = chunk.as_bytes();
+        let mut roots: Vec<ObjCoords> = Vec::new();
+
+        for (i, &b) in bytes.iter().enumerate() {
+            let idx = self.offset + i;
+
+            if self.in_string {
+                if self.escape {
+                    self.escape = false;
+                    continue;
+                }
+                match b {
+                    b'\\' => self.escape = true,
+                    b'"' => self.in_string = false,
+                    _ => {}
+                }
+                continue;
             }
-            
-            // Try combining this line with subsequent lines
-            for end_line in i + 1..lines.len() {
-                let combined = lines[i..=end_line].join("\n");
-                if serde_json::from_str::<serde_json::Value>(&combined).is_ok() {
-                    debug!(start_line = i + 1, end_line = end_line + 1, "Found valid multi-line JSON");
-                    return Some(combined);
+
+            match b {
+                b'"' => self.in_string = true,
+                b'{' => self.stack.push(Frame { start: idx, kind: NodeType::Object, children: Vec::new() }),
+                b'[' => self.stack.push(Frame { start: idx, kind: NodeType::Array, children: Vec::new() }),
+                b'}' => {
+                    if let Some(frame) = self.stack.pop() {
+                        if frame.kind == NodeType::Object {
+                            let node = ObjCoords::new(frame.start, idx, NodeType::Object, frame.children);
+                            if let Some(parent) = self.stack.last_mut() {
+                                parent.children.push(node);
+                            } else {
+                                roots.push(node);
+                            }
+                        }
+                    }
                 }
-                
-                // Stop if we've gone too far (e.g., more than 50 lines)
-                if end_line - i > 50 {
-                    break;
+                b']' => {
+                    if let Some(frame) = self.stack.pop() {
+                        if frame.kind == NodeType::Array {
+                            let node = ObjCoords::new(frame.start, idx, NodeType::Array, frame.children);
+                            if let Some(parent) = self.stack.last_mut() {
+                                parent.children.push(node);
+                            } else {
+                                roots.push(node);
+                            }
+                        }
+                    }
                 }
+                _ => {}
+            }
+        }
+
+        self.offset += bytes.len();
+        debug!(target = "semantic_query::json_stream", roots = roots.len(), new_offset = self.offset, "feed complete");
+        roots
+    }
+}
+
+/// A deserialized item or an unknown structure (with coordinates) for upstream handling.
+#[derive(Debug, Clone)]
+pub enum ParsedOrUnknown<T> {
+    Parsed(T),
+    Unknown(ObjCoords),
+}
+
+/// Attempt to deserialize a node; if it fails, recursively try children.
+fn descend_deserialize<T: DeserializeOwned>(text: &str, node: &ObjCoords, out: &mut Vec<ParsedOrUnknown<T>>) {
+    let slice_end = node.end + 1; // end is inclusive
+    let candidate = &text[node.start..slice_end];
+    if let Ok(parsed) = serde_json::from_str::<T>(candidate) {
+        out.push(ParsedOrUnknown::Parsed(parsed));
+        return; // success: do not attempt internals
+    }
+    // Try children
+    let before_len = out.len();
+    for child in &node.children {
+        descend_deserialize::<T>(text, child, out);
+    }
+    // If none of the children produced anything, surface this unknown
+    if out.len() == before_len {
+        out.push(ParsedOrUnknown::Unknown(node.clone()));
+    }
+}
+
+/// Produce a flat stream of parsed items or unknown structures from the given text.
+#[instrument(target = "semantic_query::json_stream", skip(text))]
+pub fn deserialize_stream_map<T: DeserializeOwned>(text: &str) -> Vec<ParsedOrUnknown<T>> {
+    let mut out = Vec::new();
+    let roots = find_json_structures(text);
+    for node in &roots {
+        descend_deserialize::<T>(text, node, &mut out);
+    }
+    debug!(target = "semantic_query::json_stream", items = out.len(), "deserialize stream map done");
+    out
+}
+
+/// Spawn a background task that reads from an `AsyncRead` and streams discovered JSON
+/// root coordinates as they are closed. Returns an `mpsc::Receiver<ObjCoords>`.
+pub fn stream_coords_from_async_read<R>(mut reader: R, buf_size: usize) -> mpsc::Receiver<ObjCoords>
+where
+    R: AsyncRead + Send + Unpin + 'static,
+{
+    let (tx, rx) = mpsc::channel(64);
+    tokio::spawn(async move {
+        tracing::debug!(target = "semantic_query::json_stream", "spawned stream_coords_from_async_read task");
+        let mut parser = JsonStreamParser::new();
+        let mut accum = String::new();
+        let mut buf = vec![0u8; buf_size.max(1024)];
+        loop {
+            match reader.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    if let Ok(s) = std::str::from_utf8(&buf[..n]) {
+                        accum.push_str(s);
+                        for node in parser.feed(s) {
+                            // Ignore send errors if receiver dropped
+                            trace!(target = "semantic_query::json_stream", start = node.start, end = node.end, kind = ?node.kind, "emitting coords");
+                            let _ = tx.send(node).await;
+                        }
+                    } else {
+                        // Non-UTF8 bytes; skip for now (JSON is UTF-8)
+                        debug!(target = "semantic_query::json_stream", "skipping non-utf8 chunk");
+                    }
+                }
+                Err(e) => { debug!(target = "semantic_query::json_stream", error = %e, "read error"); break },
+            }
+        }
+        tracing::debug!(target = "semantic_query::json_stream", "stream_coords_from_async_read completed");
+    });
+    rx
+}
+
+/// Spawn a background task that reads from an `AsyncRead` and streams either parsed `T`
+/// or unknown coordinates as they are found (parent-first). Uses an internal buffer to
+/// slice by coordinates.
+pub fn stream_deserialized_from_async_read<R, T>(mut reader: R, buf_size: usize) -> mpsc::Receiver<ParsedOrUnknown<T>>
+where
+    R: AsyncRead + Send + Unpin + 'static,
+    T: DeserializeOwned + Send + 'static,
+{
+    let (tx, rx) = mpsc::channel(64);
+    tokio::spawn(async move {
+        tracing::debug!(target = "semantic_query::json_stream", "spawned stream_deserialized_from_async_read task");
+        let mut parser = JsonStreamParser::new();
+        let mut accum = String::new();
+        let mut buf = vec![0u8; buf_size.max(1024)];
+        loop {
+            match reader.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    if let Ok(s) = std::str::from_utf8(&buf[..n]) {
+                        let start_len = accum.len();
+                        accum.push_str(s);
+                        for node in parser.feed(s) {
+                            // Attempt parent-first deserialization on each closed root
+                            let mut out = Vec::new();
+                            descend_deserialize::<T>(&accum, &node, &mut out);
+                            for item in out {
+                                trace!(target = "semantic_query::json_stream", "emitting parsed/unknown item");
+                                let _ = tx.send(item).await;
+                            }
+                        }
+                        let _ = start_len; // quiet unused warning if any
+                    } else {
+                        // Non-UTF8 bytes; skip for now
+                        debug!(target = "semantic_query::json_stream", "skipping non-utf8 chunk");
+                    }
+                }
+                Err(e) => { debug!(target = "semantic_query::json_stream", error = %e, "read error"); break },
+            }
+        }
+        tracing::debug!(target = "semantic_query::json_stream", "stream_deserialized_from_async_read completed");
+    });
+    rx
+}
+
+/// Stream variant (no channel) that yields `ObjCoords` directly via `futures::Stream`.
+pub fn stream_coords<R>(mut reader: R, buf_size: usize) -> impl Stream<Item = ObjCoords>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+{
+    stream! {
+        let mut parser = JsonStreamParser::new();
+        let mut buf = vec![0u8; buf_size.max(1024)];
+        loop {
+            match reader.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    if let Ok(s) = std::str::from_utf8(&buf[..n]) {
+                        for node in parser.feed(s) {
+                            yield node;
+                        }
+                    }
+                }
+                Err(_) => break,
             }
         }
     }
-    
-    None
 }
 
-/// Extract JSON from markdown code blocks
-pub fn extract_json_from_markdown(response: &str) -> Option<String> {
-    // Try different markdown patterns
-    let patterns = [
-        r"```json\s*\n([\s\S]*?)\n\s*```",
-        r"```json([\s\S]*?)```",
-        r"```\s*\n([\s\S]*?)\n\s*```",
-        r"```([\s\S]*?)```",
-    ];
-    
-    for pattern in &patterns {
-        if let Ok(re) = Regex::new(pattern) {
-            if let Some(captures) = re.captures(response) {
-                if let Some(json_match) = captures.get(1) {
-                    let content = json_match.as_str().trim();
-                    debug!(pattern = pattern, content_len = content.len(), "Found JSON in markdown");
-                    return Some(content.to_string());
+/// Stream variant (no channel) that yields `ParsedOrUnknown<T>` via `futures::Stream`.
+pub fn stream_parsed<R, T>(mut reader: R, buf_size: usize) -> impl Stream<Item = ParsedOrUnknown<T>>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+    T: DeserializeOwned + Send + 'static,
+{
+    stream! {
+        let mut parser = JsonStreamParser::new();
+        let mut accum = String::new();
+        let mut buf = vec![0u8; buf_size.max(1024)];
+        loop {
+            match reader.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    if let Ok(s) = std::str::from_utf8(&buf[..n]) {
+                        accum.push_str(s);
+                        for node in parser.feed(s) {
+                            let mut out = Vec::new();
+                            descend_deserialize::<T>(&accum, &node, &mut out);
+                            for item in out.into_iter() {
+                                yield item;
+                            }
+                        }
+                    }
                 }
+                Err(_) => break,
             }
         }
     }
-    
-    None
 }

@@ -23,7 +23,7 @@ fn get_client() -> &'static FlexibleClient {
             .and_then(|s| ClientType::from_str(&s).ok())
             .unwrap_or_else(ClientType::default);
         
-        FlexibleClient::new_lazy(client_type)
+        FlexibleClient::new_type(client_type)
     })
 }
 

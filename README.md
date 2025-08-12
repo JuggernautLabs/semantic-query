@@ -81,6 +81,37 @@ async fn administer_quiz(questions: Vec<QuizQuestion>) {
 
 **Setup**: Add `ANTHROPIC_API_KEY=your_key_here` to `.env` file.
 
+## Logging via .env
+
+This project uses `tracing` for logs and reads env from `.env` (via `dotenvy`). Set `RUST_LOG` in `.env` to control verbosity without passing flags:
+
+Examples:
+- Verbose parser + resolver logs:
+  ```env
+  RUST_LOG=semantic_query::json_stream=trace,semantic_query::resolver=debug
+  ```
+- Parser-only logs:
+  ```env
+  RUST_LOG=semantic_query::json_stream=debug
+  ```
+- Resolver-only logs:
+  ```env
+  RUST_LOG=semantic_query::resolver=info
+  ```
+
+Then run any example or test normally and logs will appear.
+
+Non-interactive example (safe to run):
+```
+cargo run --example semantic_stream_demo
+```
+
+DeepSeek live tests (ignored by default; requires network + key):
+```
+cargo test --test deepseek_live -- --ignored --nocapture
+```
+Set `DEEPSEEK_API_KEY` in your `.env` (FlexibleClient loads it automatically).
+
 ## Schema-Aware Prompt Generation
 
 The doc comments and constraints in your structs are automatically converted to JSON schema and included in the AI prompt. Here's what the actual prompt looks like for the QuizQuestion struct:

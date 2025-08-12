@@ -2,7 +2,7 @@
 
 use serde::{Deserialize};
 use schemars::JsonSchema;
-use semantic_query::{clients::{flexible::FlexibleClient, ClaudeConfig}, core::{QueryResolver, RetryConfig}};
+use semantic_query::{clients::{flexible::FlexibleClient, ClaudeConfig, DeepSeekConfig}, core::{QueryResolver, RetryConfig}};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct QuizQuestion {
@@ -30,13 +30,19 @@ struct Quiz {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create Claude client (reads ANTHROPIC_API_KEY from environment)
-    let client = FlexibleClient::claude(ClaudeConfig::default());
+    // Load .env first so RUST_LOG in .env is seen
+    let _ = dotenvy::dotenv();
+    // Initialize tracing from RUST_LOG if provided
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init();
+    // Create client (env handled by FlexibleClient)
+    let client = FlexibleClient::deepseek(DeepSeekConfig::default());
     let resolver = QueryResolver::new(client, RetryConfig::default());
     
     // Get 10 science quiz questions
     let quiz: Quiz = resolver.query(
-        "Create 10 high school science quiz questions with A, B, C, D answers".to_string()
+        "Create 1 high school science quiz questions with A, B, C, D answers".to_string()
     ).await?;
     
     // Administer the quiz

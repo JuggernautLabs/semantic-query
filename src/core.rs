@@ -1,5 +1,6 @@
 use crate::error::{QueryResolverError, AIError};
 use crate::json_utils;
+use crate::semantic::SemanticItem;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -14,12 +15,6 @@ use schemars::{JsonSchema, schema_for};
 pub trait LowLevelClient: Send + Sync + Debug{
     /// The only method that implementations must provide
     async fn ask_raw(&self, prompt: String) -> Result<String, AIError>;
-    
-    /// Simple JSON extraction from a prompt response (default implementation)
-    async fn ask_json(&self, prompt: String) -> Result<String, AIError> {
-        let raw_response = self.ask_raw(prompt).await?;
-        Ok(json_utils::find_json(&raw_response))
-    }
     
     /// Clone this client into a boxed trait object
     fn clone_box(&self) -> Box<dyn LowLevelClient>;
@@ -100,7 +95,7 @@ impl<C: LowLevelClient> QueryResolver<C> {
     }
     
     /// Query with retry logic and automatic JSON parsing
-    #[instrument(skip(self, prompt), fields(prompt_len = prompt.len()))]
+    #[instrument(target = "semantic_query::resolver", skip(self, prompt), fields(prompt_len = prompt.len()))]
     pub async fn query_raw<T>(&self, prompt: String) -> Result<T, QueryResolverError>
     where
         T: DeserializeOwned + Send,
@@ -115,7 +110,7 @@ impl<C: LowLevelClient> QueryResolver<C> {
     }
     
     /// Query with automatic schema-aware prompt augmentation
-    #[instrument(skip(self, prompt), fields(prompt_len = prompt.len()))]
+    #[instrument(target = "semantic_query::resolver", skip(self, prompt), fields(prompt_len = prompt.len()))]
     pub async fn query<T>(&self, prompt: String) -> Result<T, QueryResolverError>
     where
         T: DeserializeOwned + JsonSchema + Send,
@@ -128,9 +123,28 @@ impl<C: LowLevelClient> QueryResolver<C> {
         }
         result
     }
+
+    /// Query for a mixed, ordered stream of text and structured items.
+    ///
+    /// Returns an ordered vector where each element is either free-form text
+    /// or a structured `T`, allowing downstream systems to retain full context
+    /// and interleave commentary and data as the model deems useful.
+    #[instrument(target = "semantic_query::resolver", skip(self, prompt), fields(prompt_len = prompt.len()))]
+    pub async fn query_semantic<T>(&self, prompt: String) -> Result<Vec<SemanticItem<T>>, QueryResolverError>
+    where
+        T: DeserializeOwned + JsonSchema + Send,
+    {
+        info!(prompt_len = prompt.len(), "Starting semantic query (text + data)");
+        // Guide the model to output interleaved content using the schema for SemanticItem<T>
+        let augmented = self.augment_prompt_with_semantic_schema::<T>(prompt);
+        debug!(augmented_prompt_len = augmented.len(), "Generated semantic schema-augmented prompt");
+        let raw = self.client.ask_raw(augmented).await?;
+        let stream = crate::semantic::build_semantic_stream::<T>(&raw);
+        Ok(stream)
+    }
     
     /// Internal method for retry logic with JSON parsing
-    #[instrument(skip(self, prompt), fields(prompt_len = prompt.len()))]
+    #[instrument(target = "semantic_query::resolver", skip(self, prompt), fields(prompt_len = prompt.len()))]
     async fn ask_with_retry<T>(&self, prompt: String) -> Result<T, QueryResolverError>
     where
         T: DeserializeOwned + Send,
@@ -148,69 +162,31 @@ impl<C: LowLevelClient> QueryResolver<C> {
             };
             
             debug!(attempt = attempt + 1, prompt_len = full_prompt.len(), "Making API call");
-            match self.client.ask_json(full_prompt.clone()).await {
-                Ok(response) => {
-                    debug!(response_len = response.len(), "Received API response");
-                    match serde_json::from_str::<T>(&response) {
-                        Ok(parsed) => {
-                            info!(attempt = attempt + 1, "Successfully parsed JSON response");
-                            return Ok(parsed);
-                        },
-                        Err(json_err) => {
-                            warn!(
-                                error = %json_err, 
-                                response_preview = &response[..response.len().min(200)],
-                                "Initial JSON parsing failed, trying advanced extraction"
-                            );
-                            
-                            // Try advanced JSON extraction on the raw response
-                            if let Ok(raw_response) = self.client.ask_raw(full_prompt.clone()).await {
-                                if let Some(extracted_json) = json_utils::extract_json_advanced(&raw_response) {
-                                    debug!(extracted_len = extracted_json.len(), "Trying to parse extracted JSON after initial failure");
-                                    match serde_json::from_str::<T>(&extracted_json) {
-                                        Ok(parsed) => {
-                                            info!(attempt = attempt + 1, "Successfully parsed extracted JSON after initial deserialization failure");
-                                            return Ok(parsed);
-                                        },
-                                        Err(extracted_err) => {
-                                            warn!(
-                                                error = %extracted_err,
-                                                extracted_preview = &extracted_json[..extracted_json.len().min(200)],
-                                                "Advanced extraction also failed to parse"
-                                            );
-                                        }
-                                    }
-                                } else {
-                                    warn!("Advanced extraction could not find valid JSON in raw response");
-                                }
-                            }
-                            
-                            // If we're at max retries, return the error
-                            let max_retries = self.config.max_retries.get("json_parse_error")
-                                .unwrap_or(&self.config.default_max_retries);
-                            
-                            if attempt >= *max_retries {
-                                error!(
-                                    error = %json_err,
-                                    attempt = attempt + 1,
-                                    max_retries = max_retries,
-                                    "Max retries exceeded for JSON parsing"
-                                );
-                                return Err(QueryResolverError::JsonDeserialization(json_err, response));
-                            }
-                            
-                            // Otherwise, retry with context about the JSON parsing failure
-                            warn!(
-                                attempt = attempt + 1,
-                                max_retries = max_retries,
-                                "Retrying due to JSON parsing failure"
-                            );
-                            context = format!("JSON parsing failed: {}. Response was: {}", 
-                                             json_err, 
-                                             &response[..response.len().min(500)]);
-                            attempt += 1;
-                        }
+            match self.client.ask_raw(full_prompt.clone()).await {
+                Ok(raw) => {
+                    debug!(response_len = raw.len(), "Received API response");
+                    let items: Vec<crate::json_utils::ParsedOrUnknown<T>> = json_utils::deserialize_stream_map::<T>(&raw);
+                    // Return first successfully parsed item
+                    if let Some(parsed) = items.into_iter().find_map(|it| match it { json_utils::ParsedOrUnknown::Parsed(v) => Some(v), _ => None }) {
+                        info!(attempt = attempt + 1, "Successfully parsed structured item from stream");
+                        return Ok(parsed);
                     }
+
+                    // No parsed item found
+                    let max_retries = self.config.max_retries.get("json_parse_error")
+                        .unwrap_or(&self.config.default_max_retries);
+
+                    if attempt >= *max_retries {
+                        error!(attempt = attempt + 1, max_retries = max_retries, "Max retries exceeded; no matching structures found");
+                        return Err(QueryResolverError::JsonDeserialization(
+                            serde_json::Error::io(std::io::Error::new(std::io::ErrorKind::Other, "No matching JSON structure found in stream")),
+                            raw,
+                        ));
+                    }
+
+                    warn!(attempt = attempt + 1, max_retries = max_retries, "Retrying due to no matching structures in stream");
+                    context = "No matching JSON structure found".to_string();
+                    attempt += 1;
                 }
                 Err(ai_error) => {
                     warn!(error = %ai_error, attempt = attempt + 1, "API call failed");
@@ -275,29 +251,38 @@ impl<C: LowLevelClient> QueryResolver<C> {
         
         format!(
             r#"{prompt}
-You are tasked with generating a value satisfying a schema. First I will give you an example exchange then I will provide the schema of interest
-Example Schema:
-{{
-    "type": "object",
-    "properties": {{
-        "name": {{"type": "string"}},
-        "age": {{"type": "integer", "minimum": 0}},
-        "email": {{"type": "string"}},
-        "isActive": {{"type": "boolean"}},
-        "hobbies": {{"type": "array", "items": {{"type": "string"}}}}
-    }},
-    "required": ["name", "age", "email", "isActive"]
-}}
-Example response:
-{{"name": "Alice Smith", "age": 28, "email": "alice@example.com", "isActive": true, "hobbies": ["reading", "cooking"]}}
-Please provide a response matching this schema
+You must output only a single JSON value that strictly conforms to the following JSON Schema. Do not include explanations, prose, code fences labels, or additional text — only the JSON value itself.
 ```json
 {schema_json}
 ```
 "#
         )
     }
-    
+
+    /// Augment prompt specifically for semantic streams (text + data items)
+    pub fn augment_prompt_with_semantic_schema<T>(&self, prompt: String) -> String
+    where
+        T: JsonSchema,
+    {
+        let schema = schema_for!(Vec<crate::semantic::SemanticItem<T>>);
+        let schema_json = serde_json::to_string_pretty(&schema)
+            .unwrap_or_else(|_| "{}".to_string());
+
+        debug!(schema_len = schema_json.len(), "Generated JSON schema for semantic stream");
+
+        format!(
+            r#"{prompt}
+Return a single JSON array of items in order. Each item must be one of:
+- Text: {{"kind":"Text","content":{{"text":"..."}}}}
+- Data: {{"kind":"Data","content": <object matching the provided schema>}}
+Do not include any text outside the JSON array. No code fences.
+```json
+{schema_json}
+```
+"#
+        )
+    }
+
     /// Ask with automatic schema-aware prompt augmentation
     #[instrument(skip(self, prompt), fields(prompt_len = prompt.len()))]
     async fn ask_with_schema<T>(&self, prompt: String) -> Result<T, QueryResolverError>
@@ -310,5 +295,3 @@ Please provide a response matching this schema
         self.ask_with_retry(augmented_prompt).await
     }
 }
-
-
