@@ -9,6 +9,10 @@ use async_stream::stream;
 use futures_core::stream::Stream;
 
 /// Represents a piece of unstructured text content returned by the model.
+///
+/// Usage:
+/// - `SemanticItem::Text(TextContent { text })` preserves non-JSON content in the
+///   order it appears, so you never lose commentary or context.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct TextContent {
     /// Plain text content. Downstream systems can render or log this.
@@ -17,8 +21,9 @@ pub struct TextContent {
 
 /// A semantic item in the model's response stream: either text or typed data `T`.
 ///
-/// Use this as `Vec<SemanticItem<T>>` to preserve order while giving
-/// downstream systems full fidelity of both text and structured output.
+/// Usage:
+/// - One-shot: `Vec<SemanticItem<T>>` via `QueryResolver::query_semantic`.
+/// - Streaming: `Stream<Item=SemanticItem<T>>` via `stream_semantic_from_async_read`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(tag = "kind", content = "content")]
 pub enum SemanticItem<T>
@@ -38,6 +43,7 @@ pub type SemanticStream<T> = Vec<SemanticItem<T>>;
 /// structure parser for segmentation. Any JSON structure that deserializes to `T`
 /// becomes `SemanticItem::Data(T)`. Non-matching JSON and all non-JSON text are
 /// preserved as `SemanticItem::Text` in order.
+/// Build a semantic stream (ordered list of Text/Data(T)) from raw text.
 #[instrument(target = "semantic_query::json_stream", skip(raw))]
 pub fn build_semantic_stream<T>(raw: &str) -> SemanticStream<T>
 where
@@ -105,8 +111,10 @@ where
     items
 }
 
-/// Stream SemanticItem<T> from an AsyncRead by incrementally parsing JSON structures
-/// and interleaving free-form text between them.
+/// Stream `SemanticItem<T>` from an `AsyncRead` by incrementally parsing JSON
+/// structures and interleaving free-form text between them.
+///
+/// Use this for realtime toolcalls or progressive UIs.
 pub fn stream_semantic_from_async_read<R, T>(mut reader: R, buf_size: usize) -> impl Stream<Item = SemanticItem<T>>
 where
     R: AsyncRead + Unpin + Send + 'static,

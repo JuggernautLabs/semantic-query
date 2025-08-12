@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let resolver = QueryResolver::new(client, RetryConfig::default());
     
     // Get 10 science quiz questions
-    let quiz: Quiz = resolver.query(
+    let quiz: Quiz = resolver.query_with_schema(
         "Create 10 high school science quiz questions with A, B, C, D answers".to_string()
     ).await?;
     

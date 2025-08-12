@@ -38,11 +38,11 @@ struct MathResult { result: i32, is_correct: bool }
 async fn deepseek_basic_query_returns_struct() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing();
     println!("[deepseek_basic_query_returns_struct] starting test...");
-    let client = FlexibleClient::new_type(ClientType::DeepSeek);
+    let client = FlexibleClient::from_type(ClientType::DeepSeek);
 
     let resolver = QueryResolver::new(client, RetryConfig::default());
     let prompt = "What is 2 + 2? Provide the result and whether it is correct.".to_string();
-    let res: MathResult = resolver.query(prompt).await?;
+    let res: MathResult = resolver.query_with_schema(prompt).await?;
 
     // Basic sanity assertions
     println!("[deepseek_basic_query_returns_struct] got result: result={}, is_correct={}", res.result, res.is_correct);
@@ -60,7 +60,7 @@ struct Finding { message: String }
 async fn deepseek_semantic_stream_contains_data() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing();
     println!("[deepseek_semantic_stream_contains_data] starting test...");
-    let client = FlexibleClient::new_type(ClientType::DeepSeek);
+    let client = FlexibleClient::from_type(ClientType::DeepSeek);
 
     let resolver = QueryResolver::new(client, RetryConfig::default());
     let prompt = "First briefly greet the user in plain text. Then output a single JSON object matching the schema. Do not include code fences. Do not return an array. The JSON must match the schema strictly.".to_string();

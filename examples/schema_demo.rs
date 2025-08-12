@@ -48,8 +48,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .try_init();
-    // Initialize tracing
-    tracing_subscriber::fmt::init();
     
     let client = MockVoid;
     let resolver = QueryResolver::new(client, RetryConfig::default());
@@ -60,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // This would normally work with a real AI client, but MockVoid just returns "{}"
     // The important part is seeing how the schema gets generated and appended
-    match resolver.query::<AnalysisResult>(analysis_prompt).await {
+    match resolver.query_with_schema::<AnalysisResult>(analysis_prompt).await {
         Ok(result) => println!("Analysis result: {:?}", result),
         Err(e) => println!("Expected error with MockVoid: {}", e),
     }
@@ -68,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Example 2: CodeReview Schema ===");
     let review_prompt = "Review this Rust function for code quality".to_string();
     
-    match resolver.query::<CodeReview>(review_prompt).await {
+    match resolver.query_with_schema::<CodeReview>(review_prompt).await {
         Ok(result) => println!("Review result: {:?}", result),
         Err(e) => println!("Expected error with MockVoid: {}", e),
     }

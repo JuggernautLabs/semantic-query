@@ -23,7 +23,7 @@ fn get_client() -> &'static FlexibleClient {
             .and_then(|s| ClientType::from_str(&s).ok())
             .unwrap_or_else(ClientType::default);
         
-        FlexibleClient::new_type(client_type)
+        FlexibleClient::from_type(client_type)
     })
 }
 
@@ -176,7 +176,7 @@ async fn benchmark_math_query(_verbose: bool) -> String {
     let client = get_client().clone();
     let resolver = QueryResolver::new(client, RetryConfig::default());
     let start = Instant::now();
-    let result = resolver.query::<MathResult>("What is 15 + 27? Please provide the result and verify if it's correct.".to_string()).await;
+    let result = resolver.query_with_schema::<MathResult>("What is 15 + 27? Please provide the result and verify if it's correct.".to_string()).await;
     let duration = start.elapsed();
     
     match result {
@@ -212,7 +212,7 @@ function processData(data) {
     );
     
     let start = Instant::now();
-    let result = resolver.query::<CodeAnalysis>(prompt).await;
+    let result = resolver.query_with_schema::<CodeAnalysis>(prompt).await;
     let duration = start.elapsed();
     
     match result {
@@ -241,7 +241,7 @@ async fn benchmark_schema_constraints(verbose: bool) -> String {
     let client = get_client().clone();
     let resolver = QueryResolver::new(client, RetryConfig::default());
     let start = Instant::now();
-    let result = resolver.query::<CodeAnalysis>("Give a high-confidence analysis of this simple function: fn add(a: i32, b: i32) -> i32 { a + b }".to_string()).await;
+    let result = resolver.query_with_schema::<CodeAnalysis>("Give a high-confidence analysis of this simple function: fn add(a: i32, b: i32) -> i32 { a + b }".to_string()).await;
     let duration = start.elapsed();
     
     match result {
@@ -281,7 +281,7 @@ async fn benchmark_schema_accuracy(verbose: bool) -> String {
     let client = get_client().clone();
     let resolver = QueryResolver::new(client, RetryConfig::default());
     let start = Instant::now();
-    let result = resolver.query::<MathResult>("What is 8 * 7? Return exactly what the schema asks for.".to_string()).await;
+    let result = resolver.query_with_schema::<MathResult>("What is 8 * 7? Return exactly what the schema asks for.".to_string()).await;
     let duration = start.elapsed();
     
     match result {
@@ -319,7 +319,7 @@ async fn benchmark_advanced_retry(verbose: bool) -> String {
     let retry_resolver = QueryResolver::new(client, retry_config);
     
     let start = Instant::now();
-    let result = retry_resolver.query::<MathResult>("Calculate the square root of 144. Be very verbose in your explanation but still return the JSON.".to_string()).await;
+    let result = retry_resolver.query_with_schema::<MathResult>("Calculate the square root of 144. Be very verbose in your explanation but still return the JSON.".to_string()).await;
     let duration = start.elapsed();
     
     match result {
@@ -345,7 +345,7 @@ async fn benchmark_empty_prompt(verbose: bool) -> String {
     let client = get_client().clone();
     let resolver = QueryResolver::new(client, RetryConfig::default());
     let start = Instant::now();
-    let result = resolver.query::<MathResult>("".to_string()).await; // Empty prompt should fail
+    let result = resolver.query_with_schema::<MathResult>("".to_string()).await; // Empty prompt should fail
     let duration = start.elapsed();
     
     match result {

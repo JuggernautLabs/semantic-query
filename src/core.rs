@@ -1,3 +1,12 @@
+//! Core querying API: wraps a low-level model client with resilient JSON extraction,
+//! schema-aware prompting, and semantic streaming.
+//!
+//! Quick start:
+//! - `query_deserialized<T>`: returns `T` from prompts where the model embeds JSON.
+//! - `query_with_schema<T>`: appends JSON Schema for `T` to improve reliability.
+//! - `query_semantic<T>`: returns `Vec<SemanticItem<T>>` preserving interleaved text + data.
+//! - `query_semantic_stream<T, R: AsyncRead>`: emits `SemanticItem<T>` as the stream arrives.
+
 use crate::error::{QueryResolverError, AIError};
 use crate::json_utils;
 use crate::semantic::SemanticItem;
@@ -8,9 +17,11 @@ use async_trait::async_trait;
 use tracing::{info, warn, error, debug, instrument};
 use schemars::{JsonSchema, schema_for};
 
-/// Low-level client trait that only requires implementing ask_raw.
-/// This trait can be used as dyn LowLevelClient for dynamic dispatch.
-/// JSON processing is handled by utility functions with a convenience method.
+/// Low-level model client abstraction.
+///
+/// Implementors provide `ask_raw`, which executes a prompt and returns the raw
+/// model text. Higher-level parsing and schema handling is performed by
+/// `QueryResolver` using stream-first JSON extraction.
 #[async_trait]
 pub trait LowLevelClient: Send + Sync + Debug{
     /// The only method that implementations must provide
@@ -94,9 +105,13 @@ impl<C: LowLevelClient> QueryResolver<C> {
         self
     }
     
-    /// Query with retry logic and automatic JSON parsing
+    /// Return a deserialized value `T` using retry + stream-based JSON extraction.
+    ///
+    /// Usage:
+    /// - For free-form prompts where the model emits JSON somewhere in the text.
+    /// - Prefer `query_with_schema` when you can provide a schema for `T`.
     #[instrument(target = "semantic_query::resolver", skip(self, prompt), fields(prompt_len = prompt.len()))]
-    pub async fn query_raw<T>(&self, prompt: String) -> Result<T, QueryResolverError>
+    pub async fn query_deserialized<T>(&self, prompt: String) -> Result<T, QueryResolverError>
     where
         T: DeserializeOwned + Send,
     {
@@ -109,9 +124,12 @@ impl<C: LowLevelClient> QueryResolver<C> {
         result
     }
     
-    /// Query with automatic schema-aware prompt augmentation
+    /// Return a deserialized value `T` with automatic JSON Schema guidance.
+    ///
+    /// Appends the JSON Schema for `T` to the prompt and enforces
+    /// “JSON only” output, improving reliability.
     #[instrument(target = "semantic_query::resolver", skip(self, prompt), fields(prompt_len = prompt.len()))]
-    pub async fn query<T>(&self, prompt: String) -> Result<T, QueryResolverError>
+    pub async fn query_with_schema<T>(&self, prompt: String) -> Result<T, QueryResolverError>
     where
         T: DeserializeOwned + JsonSchema + Send,
     {
@@ -124,7 +142,7 @@ impl<C: LowLevelClient> QueryResolver<C> {
         result
     }
 
-    /// Query for a mixed, ordered stream of text and structured items.
+    /// Return a mixed, ordered vector of text and structured items.
     ///
     /// Returns an ordered vector where each element is either free-form text
     /// or a structured `T`, allowing downstream systems to retain full context
@@ -293,5 +311,42 @@ Do not include any text outside the JSON array. No code fences.
         let augmented_prompt = self.augment_prompt_with_schema::<T>(prompt);
         debug!(augmented_prompt_len = augmented_prompt.len(), "Generated schema-augmented prompt");
         self.ask_with_retry(augmented_prompt).await
+    }
+
+    /// Stream `SemanticItem<T>` from any `AsyncRead` of model output.
+    ///
+    /// Wraps the stream-first JSON structure parser to emit `Text` chunks for
+    /// non-JSON and `Data(T)` when a structure deserializes to `T`.
+    ///
+    /// Example (synthetic stream):
+    /// ```no_run
+    /// use tokio::io::{duplex, AsyncWriteExt};
+    /// use futures_core::StreamExt;
+    /// use semantic_query::core::{QueryResolver, RetryConfig};
+    /// use semantic_query::semantic::{SemanticItem};
+    /// use serde::Deserialize;
+    ///
+    /// #[derive(Deserialize)]
+    /// struct Finding { message: String }
+    ///
+    /// # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
+    /// let (mut tx, rx) = duplex(1024);
+    /// tokio::spawn(async move {
+    ///     let _ = tx.write_all(b"hello ").await;
+    ///     let _ = tx.write_all(br#"{"message":"world"}"#).await;
+    /// });
+    /// let resolver = QueryResolver::new(semantic_query::clients::mock::MockVoid, RetryConfig::default());
+    /// let mut stream = resolver.query_semantic_stream::<Finding,_>(rx, 1024);
+    /// while let Some(item) = stream.next().await {
+    ///     match item { SemanticItem::Text(t) => println!("text: {}", t.text), SemanticItem::Data(d) => println!("data: {}", d.message), }
+    /// }
+    /// # Ok(()) }
+    /// ```
+    pub fn query_semantic_stream<T, R>(&self, reader: R, buf_size: usize) -> impl futures_core::stream::Stream<Item = SemanticItem<T>>
+    where
+        T: DeserializeOwned + JsonSchema + Send + 'static,
+        R: tokio::io::AsyncRead + Unpin + Send + 'static,
+    {
+        crate::semantic::stream_semantic_from_async_read::<R, T>(reader, buf_size)
     }
 }
