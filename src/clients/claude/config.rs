@@ -4,8 +4,11 @@ use super::models::ClaudeModel;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Provider {
+    #[cfg(feature = "anthropic")] 
     Anthropic,
+    #[cfg(feature = "bedrock")] 
     AwsBedrock,
+    #[cfg(feature = "vertex")] 
     GcpVertex,
 }
 
@@ -62,6 +65,7 @@ impl ClaudeConfig {
         }
     }
 
+    #[cfg(feature = "anthropic")] 
     pub fn anthropic(api_key: String, model: ClaudeModel) -> Self {
         Self {
             provider: Provider::Anthropic,
@@ -71,6 +75,7 @@ impl ClaudeConfig {
         }
     }
 
+    #[cfg(feature = "bedrock")] 
     pub fn bedrock(aws_region: String, model: ClaudeModel) -> Self {
         Self {
             provider: Provider::AwsBedrock,
@@ -80,6 +85,7 @@ impl ClaudeConfig {
         }
     }
 
+    #[cfg(feature = "vertex")] 
     pub fn vertex(project_id: String, location: String, model: ClaudeModel) -> Self {
         Self {
             provider: Provider::GcpVertex,

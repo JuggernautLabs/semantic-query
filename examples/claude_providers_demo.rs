@@ -94,3 +94,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     Ok(())
 }
+#![cfg(any(feature = "bedrock", feature = "vertex", feature = "anthropic"))]

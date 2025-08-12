@@ -4,6 +4,9 @@ use serde::Deserialize;
 
 use crate::json_utils::{find_json_structures, deserialize_stream_map, ParsedOrUnknown};
 use tracing::{debug, instrument};
+use tokio::io::{AsyncRead, AsyncReadExt};
+use async_stream::stream;
+use futures_core::stream::Stream;
 
 /// Represents a piece of unstructured text content returned by the model.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -100,4 +103,74 @@ where
     }
 
     items
+}
+
+/// Stream SemanticItem<T> from an AsyncRead by incrementally parsing JSON structures
+/// and interleaving free-form text between them.
+pub fn stream_semantic_from_async_read<R, T>(mut reader: R, buf_size: usize) -> impl Stream<Item = SemanticItem<T>>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+    T: DeserializeOwned + JsonSchema + Send + 'static,
+{
+    stream! {
+        let mut parser = crate::json_utils::JsonStreamParser::new();
+        let mut accum = String::new();
+        let mut last_offset: usize = 0;
+        let mut buf = vec![0u8; buf_size.max(1024)];
+        loop {
+            match reader.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    if let Ok(s) = std::str::from_utf8(&buf[..n]) {
+                        let old_len = accum.len();
+                        accum.push_str(s);
+                        for node in parser.feed(s) {
+                            // Emit text before node
+                            if node.start > last_offset && node.start <= accum.len() {
+                                let text_slice = &accum[last_offset..node.start];
+                                if !text_slice.trim().is_empty() {
+                                    yield SemanticItem::Text(TextContent { text: text_slice.to_string() });
+                                }
+                            }
+
+                            // Process node slice
+                            let end = node.end + 1;
+                            if end <= accum.len() {
+                                let json_slice = &accum[node.start..end];
+                                let mapped: Vec<ParsedOrUnknown<T>> = deserialize_stream_map::<T>(json_slice);
+                                if mapped.is_empty() {
+                                    yield SemanticItem::Text(TextContent { text: json_slice.to_string() });
+                                } else {
+                                    let mut any = false;
+                                    for item in mapped {
+                                        match item {
+                                            ParsedOrUnknown::Parsed(v) => { any = true; yield SemanticItem::Data(v); }
+                                            ParsedOrUnknown::Unknown(u) => {
+                                                let u_end = u.end + 1;
+                                                if u_end <= json_slice.len() && u.start < u_end {
+                                                    let sub = &json_slice[u.start..u_end];
+                                                    yield SemanticItem::Text(TextContent { text: sub.to_string() });
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if !any { yield SemanticItem::Text(TextContent { text: json_slice.to_string() }); }
+                                }
+                                last_offset = end;
+                            }
+                        }
+                        let _ = old_len;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        // Emit trailing text
+        if last_offset < accum.len() {
+            let text_slice = &accum[last_offset..];
+            if !text_slice.trim().is_empty() {
+                yield SemanticItem::Text(TextContent { text: text_slice.to_string() });
+            }
+        }
+    }
 }

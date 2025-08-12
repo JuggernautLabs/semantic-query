@@ -13,16 +13,22 @@ use async_trait::async_trait;
 
 #[derive(Clone, Debug)]
 pub enum ClaudeClientProvider {
+    #[cfg(feature = "anthropic")] 
     Anthropic(AnthropicProvider),
+    #[cfg(feature = "bedrock")] 
     Bedrock(BedrockProvider),
+    #[cfg(feature = "vertex")] 
     Vertex(VertexProvider),
 }
 
 impl ClaudeClientProvider {
     async fn call_api(&self, request: &ClaudeRequest) -> Result<String, AIError> {
         match self {
+            #[cfg(feature = "anthropic")] 
             Self::Anthropic(provider) => provider.call_api(request).await,
+            #[cfg(feature = "bedrock")] 
             Self::Bedrock(provider) => provider.call_api(request).await,
+            #[cfg(feature = "vertex")] 
             Self::Vertex(provider) => provider.call_api(request).await,
         }
     }
@@ -48,9 +54,14 @@ impl Default for ClaudeClient {
 impl ClaudeClient {
     pub fn new(config: ClaudeConfig) -> Self {
         let provider = match config.provider {
+            #[cfg(feature = "anthropic")] 
             Provider::Anthropic => ClaudeClientProvider::Anthropic(AnthropicProvider::new(config.clone())),
+            #[cfg(feature = "bedrock")] 
             Provider::AwsBedrock => ClaudeClientProvider::Bedrock(BedrockProvider::new(config.clone())),
+            #[cfg(feature = "vertex")] 
             Provider::GcpVertex => ClaudeClientProvider::Vertex(VertexProvider::new(config.clone())),
+            #[allow(unreachable_patterns)]
+            _ => panic!("Requested provider is not enabled via features"),
         };
 
         Self { provider, config }

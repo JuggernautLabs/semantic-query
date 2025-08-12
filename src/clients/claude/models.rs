@@ -69,8 +69,11 @@ impl ClaudeModel {
 
     pub fn model_id_for_provider(&self, provider: &super::config::Provider) -> &'static str {
         match provider {
+            #[cfg(feature = "anthropic")] 
             super::config::Provider::Anthropic => self.anthropic_model_id(),
+            #[cfg(feature = "bedrock")] 
             super::config::Provider::AwsBedrock => self.bedrock_model_id(),
+            #[cfg(feature = "vertex")] 
             super::config::Provider::GcpVertex => self.vertex_model_id(),
         }
     }

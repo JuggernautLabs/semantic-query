@@ -1,9 +1,15 @@
+#[cfg(feature = "anthropic")]
 pub mod anthropic;
+#[cfg(feature = "bedrock")]
 pub mod bedrock;
+#[cfg(feature = "vertex")]
 pub mod vertex;
 
+#[cfg(feature = "anthropic")]
 pub use anthropic::*;
+#[cfg(feature = "bedrock")]
 pub use bedrock::*;
+#[cfg(feature = "vertex")]
 pub use vertex::*;
 
 use crate::error::AIError;

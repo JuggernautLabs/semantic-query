@@ -22,9 +22,15 @@ schemars = { version = "1.0.4", features = ["derive"] }
 clap = { version = "4.0", features = ["derive"] }
 crossterm = "0.27"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-divan = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 async-stream = "0.3"
 futures-core = "0.3"
 
 [dev-dependencies]
+
+[features]
+default = ["anthropic", "deepseek"]
+anthropic = []
+bedrock = []
+vertex = []
+deepseek = []
