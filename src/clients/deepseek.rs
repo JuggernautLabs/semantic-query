@@ -1,4 +1,5 @@
 use crate::core::{LowLevelClient};
+use crate::clients::deepseek_models::DeepSeekModel;
 use bytes::Bytes;
 use futures_core::Stream;
 use futures_util::{StreamExt, TryStreamExt};
@@ -42,7 +43,7 @@ struct DeepSeekResponseMessage {
 #[derive(Debug, Clone)]
 pub struct DeepSeekConfig {
     pub api_key: String,
-    pub model: String,
+    pub model: DeepSeekModel,
     pub max_tokens: u32,
     pub temperature: f32,
 }
@@ -51,7 +52,7 @@ impl Default for DeepSeekConfig {
     fn default() -> Self {
         Self {
             api_key:DeepSeekConfig::find_key().unwrap_or(String::new()),
-            model: "deepseek-chat".to_string(),
+            model: DeepSeekModel::default(),
             max_tokens: 4096,
             temperature: 0.3,
         }
@@ -72,7 +73,7 @@ impl Default for DeepSeekClient {
     fn default() -> Self {
         let config = DeepSeekConfig::default();
             
-        info!(model = %config.model, "Creating new DeepSeek client");
+        info!(model = %config.model.id(), "Creating new DeepSeek client");
         Self {
             config,
             client: Client::new(),
@@ -84,7 +85,7 @@ impl Default for DeepSeekClient {
 impl DeepSeekClient {
     /// Create a new DeepSeek client with full configuration
     pub fn new(config: DeepSeekConfig) -> Self {
-        info!(model = %config.model, "Creating new DeepSeek client");
+        info!(model = %config.model.id(), "Creating new DeepSeek client");
         Self {
             config,
             client: Client::new(),
@@ -95,12 +96,12 @@ impl DeepSeekClient {
 
 #[async_trait]
 impl LowLevelClient for DeepSeekClient {
-    #[instrument(skip(self, prompt), fields(prompt_len = prompt.len(), model = %self.config.model))]
+    #[instrument(skip(self, prompt), fields(prompt_len = prompt.len(), model = %self.config.model.id()))]
     async fn ask_raw(&self, prompt: String) -> Result<String, AIError> {
-        debug!(model = %self.config.model, prompt_len = prompt.len(), "Preparing DeepSeek API request");
+        debug!(model = %self.config.model.id(), prompt_len = prompt.len(), "Preparing DeepSeek API request");
         
         let request = DeepSeekRequest {
-            model: self.config.model.clone(),
+            model: self.config.model.id().to_string(),
             messages: vec![DeepSeekMessage {
                 role: "user".to_string(),
                 content: prompt,
@@ -176,7 +177,7 @@ impl LowLevelClient for DeepSeekClient {
 
     fn stream_raw(&self, prompt: String) -> Option<std::pin::Pin<Box<dyn Stream<Item = Result<Bytes, AIError>> + Send>>> {
         let body = serde_json::json!({
-            "model": self.config.model,
+            "model": self.config.model.id(),
             "max_tokens": self.config.max_tokens,
             "temperature": self.config.temperature,
             "stream": true,
