@@ -1,6 +1,6 @@
 [package]
 name = "semantic-query"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "AI-powered schema validation with automatic JSON generation for type-safe responses"
 license = "MIT"
