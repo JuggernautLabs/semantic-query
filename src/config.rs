@@ -91,8 +91,8 @@ pub trait KeyFromEnv {
         let result = if event::poll(Duration::from_secs(30))? {
             if let Event::Key(KeyEvent { code, .. }) = event::read()? {
                 match code {
-                    KeyCode::Char('y') | KeyCode::Char('Y') => Ok("y".to_string()),
-                    KeyCode::Char('n') | KeyCode::Char('N') => Ok("n".to_string()),
+                    KeyCode::Char('y' | 'Y') => Ok("y".to_string()),
+                    KeyCode::Char('n' | 'N') => Ok("n".to_string()),
                     KeyCode::Enter => Ok("n".to_string()), // Default to no
                     _ => Ok("n".to_string()), // Any other key defaults to no
                 }

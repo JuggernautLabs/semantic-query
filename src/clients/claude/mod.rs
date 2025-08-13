@@ -12,6 +12,7 @@ use crate::error::AIError;
 use crate::config::KeyFromEnv;
 use async_trait::async_trait;
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Debug)]
 pub enum ClaudeClientProvider {
     #[cfg(feature = "anthropic")] 
@@ -40,6 +41,7 @@ impl ClaudeClientProvider {
     }
 }
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Debug)]
 pub struct ClaudeClient {
     provider: ClaudeClientProvider,
@@ -58,6 +60,8 @@ impl Default for ClaudeClient {
 }
 
 impl ClaudeClient {
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
     pub fn new(config: ClaudeConfig) -> Self {
         let provider = match config.provider {
             #[cfg(feature = "anthropic")] 

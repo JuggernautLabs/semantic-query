@@ -2,7 +2,7 @@ use crate::config::KeyFromEnv;
 
 use super::models::ClaudeModel;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Provider {
     #[cfg(feature = "anthropic")] 
     Anthropic,
@@ -16,6 +16,7 @@ impl Default for Provider {
     }
 }
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone)]
 pub struct ClaudeConfig {
     pub provider: Provider,
@@ -35,7 +36,7 @@ impl Default for ClaudeConfig {
         Self {
             provider: Provider::default(),
             model: ClaudeModel::default(),
-            api_key: ClaudeConfig::find_key().unwrap_or(String::new()),
+            api_key: Self::find_key().unwrap_or(String::new()),
 
             max_tokens: 4096,
             enable_caching: true,
@@ -48,6 +49,7 @@ impl Default for ClaudeConfig {
 }
 
 impl ClaudeConfig {
+    #[must_use]
     pub fn new(provider: Provider, model: ClaudeModel) -> Self {
         Self {
             provider,
@@ -57,6 +59,7 @@ impl ClaudeConfig {
     }
 
     #[cfg(feature = "anthropic")] 
+    #[must_use]
     pub fn anthropic(api_key: String, model: ClaudeModel) -> Self {
         Self {
             provider: Provider::Anthropic,
@@ -67,6 +70,7 @@ impl ClaudeConfig {
     }
 
     #[cfg(feature = "bedrock")] 
+    #[must_use]
     pub fn bedrock(aws_region: String, model: ClaudeModel) -> Self {
         Self {
             provider: Provider::AwsBedrock,
@@ -76,16 +80,19 @@ impl ClaudeConfig {
         }
     }
 
+    #[must_use]
     pub fn get_model_for_provider(&self) -> String {
         self.model.model_id_for_provider(&self.provider).to_string()
     }
 
-    pub fn with_provider(mut self, provider: Provider) -> Self {
+    #[must_use]
+    pub const fn with_provider(mut self, provider: Provider) -> Self {
         self.provider = provider;
         self
     }
 
-    pub fn with_model(mut self, model: ClaudeModel) -> Self {
+    #[must_use]
+    pub const fn with_model(mut self, model: ClaudeModel) -> Self {
         self.model = model;
         self
     }

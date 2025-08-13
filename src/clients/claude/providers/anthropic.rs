@@ -10,6 +10,7 @@ use bytes::Bytes;
 use futures_core::Stream;
 use futures_util::StreamExt;
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Debug)]
 pub struct AnthropicProvider {
     config: ClaudeConfig,
@@ -21,6 +22,7 @@ impl KeyFromEnv for AnthropicProvider {
 }
 
 impl AnthropicProvider {
+    #[must_use]
     pub fn new(config: ClaudeConfig) -> Self {
         Self {
             config,
@@ -28,10 +30,10 @@ impl AnthropicProvider {
         }
     }
 
+    #[must_use]
     pub fn default_with_key() -> Self {
         let api_key = Self::find_key_with_user();
-        let mut config = ClaudeConfig::default();
-        config.api_key = api_key;
+        let config = ClaudeConfig { api_key, ..ClaudeConfig::default() };
         Self::new(config)
     }
 }

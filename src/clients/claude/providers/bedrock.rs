@@ -5,6 +5,7 @@ use tracing::{debug, error, info, instrument};
 use super::{ClaudeProvider, ClaudeRequest};
 use crate::clients::claude::config::ClaudeConfig;
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Debug)]
 pub struct BedrockProvider {
     config: ClaudeConfig,
@@ -13,7 +14,8 @@ pub struct BedrockProvider {
 }
 
 impl BedrockProvider {
-    pub fn new(config: ClaudeConfig) -> Self {
+    #[must_use]
+    pub const fn new(config: ClaudeConfig) -> Self {
         Self { config }
     }
 

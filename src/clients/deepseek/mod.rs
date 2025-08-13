@@ -39,7 +39,7 @@ struct DeepSeekResponseMessage {
     content: String,
 }
 
-/// Configuration for DeepSeek client
+/// Configuration for `DeepSeek` client
 #[derive(Debug, Clone)]
 pub struct DeepSeekConfig {
     pub api_key: String,
@@ -51,7 +51,7 @@ pub struct DeepSeekConfig {
 impl Default for DeepSeekConfig {
     fn default() -> Self {
         Self {
-            api_key:DeepSeekConfig::find_key().unwrap_or(String::new()),
+            api_key: Self::find_key().unwrap_or(String::new()),
             model: DeepSeekModel::default(),
             max_tokens: 4096,
             temperature: 0.3,

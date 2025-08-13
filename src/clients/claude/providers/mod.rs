@@ -61,6 +61,7 @@ pub struct ClaudeContent {
 }
 
 impl ClaudeRequest {
+    #[must_use]
     pub fn new(prompt: String, config: &ClaudeConfig) -> Self {
         let content = if config.enable_caching && prompt.len() > config.cache_threshold {
             ClaudeMessageContent::Structured(vec![

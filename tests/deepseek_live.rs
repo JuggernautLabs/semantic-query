@@ -1,6 +1,6 @@
 use semantic_query::clients::flexible::{FlexibleClient, ClientType};
 use semantic_query::core::{QueryResolver, RetryConfig};
-use semantic_query::semantic::{SemanticItem};
+use semantic_query::semantic::SemanticItem;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::sync::Once;
@@ -46,7 +46,7 @@ async fn deepseek_basic_query_returns_struct() -> Result<(), Box<dyn std::error:
 
     // Basic sanity assertions
     println!("[deepseek_basic_query_returns_struct] got result: result={}, is_correct={}", res.result, res.is_correct);
-    assert!(res.result == 4 || res.result == 4i32); // keep tolerant but strict
+    assert_eq!(res.result, 4);
     assert!(res.is_correct == true || res.is_correct == false);
     println!("[deepseek_basic_query_returns_struct] done.");
     Ok(())
@@ -73,7 +73,6 @@ async fn deepseek_semantic_stream_contains_data() -> Result<(), Box<dyn std::err
     // Read the field to avoid dead_code warning and ensure schema actually mapped
     if let Some(SemanticItem::Data(found)) = items.iter().find(|it| matches!(it, SemanticItem::Data(_))) {
         println!("[deepseek_semantic_stream_contains_data] first data message length: {}", found.message.len());
-        assert!(found.message.len() >= 0);
     }
     println!("[deepseek_semantic_stream_contains_data] found Data item: {}", has_data);
     println!("[deepseek_semantic_stream_contains_data] done.");

@@ -23,9 +23,9 @@ pub enum ClientType {
     Mock,
 }
 
-impl Into<Box<dyn LowLevelClient>> for ClientType {
-    fn into(self) -> Box<dyn LowLevelClient> {
-        match self {
+impl From<ClientType> for Box<dyn LowLevelClient> {
+    fn from(val: ClientType) -> Self {
+        match val {
             ClientType::Claude => {
                 use super::claude::ClaudeClient;
                 Box::new(ClaudeClient::default())
@@ -78,17 +78,20 @@ impl Default for ClientType {
 }
 impl ClientType {
     /// Parse client type from string (case insensitive)
+    /// # Errors
+    /// Returns `Err(String)` if the string does not match a known client type.
     pub fn from_str(s: &str) -> Result<Self, String> {
         match s.to_lowercase().as_str() {
             "claude" => Ok(Self::Claude),
             "deepseek" => Ok(Self::DeepSeek),
             "openai" | "chatgpt" => Ok(Self::ChatGPT),
             "mock" => Ok(Self::Mock),
-            _ => Err(format!("Unknown client type: '{}'. Supported: claude, deepseek, mock", s))
+            _ => Err(format!("Unknown client type: '{s}'. Supported: claude, deepseek, mock"))
         }
     }
     
     /// Create a mock variant that returns both the client type and a handle
+    #[must_use]
     pub fn mock_with_handle() -> (Self, Arc<super::mock::MockHandle>) {
         use super::mock::MockClient;
         let (_, handle) = MockClient::new();
@@ -110,7 +113,7 @@ impl std::fmt::Display for ClientType {
 
 
 #[derive(Debug)]
-/// Flexible client that wraps any LowLevelClient and provides factory functions
+/// Flexible client that wraps any `LowLevelClient` and provides factory functions
 pub struct FlexibleClient {
     inner: Arc<Mutex<Box<dyn LowLevelClient>>>,
     interceptor: Option<Arc<dyn Interceptor>>,
@@ -118,7 +121,8 @@ pub struct FlexibleClient {
 
 
 impl FlexibleClient {
-    /// Create a new FlexibleClient from a client type (lazy-initialized boxed impl)
+    /// Create a new `FlexibleClient` from a client type (lazy-initialized boxed impl)
+    #[must_use]
     pub fn from_type(client_type: ClientType) -> Self {
        
         Self { 
@@ -127,7 +131,8 @@ impl FlexibleClient {
         }
     }
     
-    /// Create a new FlexibleClient wrapping the given client
+    /// Create a new `FlexibleClient` wrapping the given client
+    #[must_use]
     pub fn new(client: Box<dyn LowLevelClient>) -> Self {
         Self { 
             inner: Arc::new(Mutex::new(client)),
@@ -135,7 +140,8 @@ impl FlexibleClient {
         }
     }
     
-    /// Create a new FlexibleClient with an interceptor
+    /// Create a new `FlexibleClient` with an interceptor
+    #[must_use]
     pub fn with_interceptor(&self, interceptor: Arc<dyn Interceptor>) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -143,20 +149,23 @@ impl FlexibleClient {
         }
     }
     
-       /// Create a new FlexibleClient with an interceptor
+       /// Create a new `FlexibleClient` with an interceptor
+       #[must_use]
        pub fn with_file_interceptor(&self, path: PathBuf) -> Self {
         Self {
             inner: self.inner.clone(),
             interceptor: Some(Arc::new(FileInterceptor::new(path))),
         }
     }
-    /// Create a FlexibleClient with a Claude client
+    /// Create a `FlexibleClient` with a Claude client
+    #[must_use]
     pub fn claude(config: ClaudeConfig) -> Self {
         use super::claude::ClaudeClient;
         Self::new(Box::new(ClaudeClient::new(config)))
     }
     
-    /// Create a FlexibleClient with a DeepSeek client  
+    /// Create a `FlexibleClient` with a `DeepSeek` client  
+    #[must_use]
     pub fn deepseek(config: DeepSeekConfig) -> Self {
         use super::deepseek::DeepSeekClient;
         Self::new(Box::new(DeepSeekClient::new(config)))

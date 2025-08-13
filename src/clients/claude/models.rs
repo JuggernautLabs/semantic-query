@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClaudeModel {
     // Claude 4 Models
     Opus4,
@@ -25,7 +25,8 @@ impl Default for ClaudeModel {
 }
 
 impl ClaudeModel {
-    pub fn anthropic_model_id(&self) -> &'static str {
+    #[must_use]
+    pub const fn anthropic_model_id(&self) -> &'static str {
         match self {
             Self::Opus4 => "claude-opus-4-20250514",
             Self::Sonnet4 => "claude-sonnet-4-20250514",
@@ -39,7 +40,8 @@ impl ClaudeModel {
         }
     }
 
-    pub fn bedrock_model_id(&self) -> &'static str {
+    #[must_use]
+    pub const fn bedrock_model_id(&self) -> &'static str {
         match self {
             Self::Opus4 => "anthropic.claude-opus-4-20250514-v1:0",
             Self::Sonnet4 => "anthropic.claude-sonnet-4-20250514-v1:0",
@@ -53,7 +55,8 @@ impl ClaudeModel {
         }
     }
 
-    pub fn model_id_for_provider(&self, provider: &super::config::Provider) -> &'static str {
+    #[must_use]
+    pub const fn model_id_for_provider(&self, provider: &super::config::Provider) -> &'static str {
         match provider {
             #[cfg(feature = "anthropic")] 
             super::config::Provider::Anthropic => self.anthropic_model_id(),
@@ -62,7 +65,8 @@ impl ClaudeModel {
         }
     }
 
-    pub fn display_name(&self) -> &'static str {
+    #[must_use]
+    pub const fn display_name(&self) -> &'static str {
         match self {
             Self::Opus4 => "Claude 4 Opus",
             Self::Sonnet4 => "Claude 4 Sonnet", 
