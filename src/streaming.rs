@@ -26,6 +26,10 @@ where
         let mut br = BufReader::new(reader).lines();
         let mut sse_event = String::new();
         let mut text_buf = String::new();
+        // Track whether we're inside a JSON structure being streamed
+        let mut depth: i32 = 0;
+        let mut in_string = false;
+        let mut escape = false;
 
         while let Ok(Some(line)) = br.next_line().await {
             if line.is_empty() {
@@ -40,9 +44,8 @@ where
                         if let Some(token) = v.get("choices").and_then(|c| c.get(0))
                             .and_then(|c0| c0.get("delta")).and_then(|d| d.get("content")).and_then(|c| c.as_str())
                         {
-                            // live token
+                            // Emit raw token for live rendering and accumulate for parsing
                             yield AggregatedEvent::Token(token.to_string());
-                            // accumulate
                             text_buf.push_str(token);
 
                             // detect completed JSON for T
@@ -70,8 +73,13 @@ where
                                 text_buf = rest[2..].to_string();
                             }
 
-                            // Finish flush
-                            if v.get("choices").and_then(|c| c.get(0)).and_then(|c0| c0.get("finish_reason")).is_some() {
+                            // Finish flush only when finish_reason is a non-null string
+                            if v
+                                .get("choices").and_then(|c| c.get(0))
+                                .and_then(|c0| c0.get("finish_reason"))
+                                .and_then(|fr| fr.as_str())
+                                .is_some()
+                            {
                                 let tail = text_buf.trim();
                                 if !tail.is_empty() { yield AggregatedEvent::TextChunk(tail.to_string()); }
                                 text_buf.clear();
@@ -87,4 +95,3 @@ where
         }
     }
 }
-

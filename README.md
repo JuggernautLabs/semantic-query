@@ -1,6 +1,6 @@
 # Semantic Query
 
-AI-powered schema validation with automatic JSON generation for type-safe responses.
+Stream-first, schema-aware AI querying. Preserve interleaved text + structured data, parse JSON reliably from messy or streamed outputs, and render in real time.
 
 ## Quick Example
 run using 
@@ -81,6 +81,15 @@ async fn administer_quiz(questions: Vec<QuizQuestion>) {
 
 **Setup**: Add `ANTHROPIC_API_KEY=your_key_here` to `.env` file.
 
+## Providers & Setup
+
+- Families: `claude/` (Anthropic, Bedrock), `deepseek/`, `chatgpt/` (OpenAI + Azure OpenAI).
+- Env keys (put in `.env`):
+  - `ANTHROPIC_API_KEY=...`
+  - `DEEPSEEK_API_KEY=...`
+  - `OPENAI_API_KEY=...` or `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION`.
+- Flexible selection: `FlexibleClient::from_type(ClientType::Claude|DeepSeek|ChatGPT)` or default based on which keys exist.
+
 ## Logging via .env
 
 This project uses `tracing` for logs and reads env from `.env` (via `dotenvy`). Set `RUST_LOG` in `.env` to control verbosity without passing flags:
@@ -101,10 +110,15 @@ Examples:
 
 Then run any example or test normally and logs will appear.
 
-Non-interactive example (safe to run):
-```
-cargo run --example semantic_stream_demo
-```
+Examples:
+- Non-interactive stream parser demo:
+  - `cargo run --example semantic_stream_demo`
+- DeepSeek agent streaming (requires `DEEPSEEK_API_KEY`):
+  - `cargo run --example deepseek_agent_stream_demo`
+- JSON structure coords demo:
+  - `cargo run --example json_stream_coords_demo`
+- Stream parser stress (chunk boundaries):
+  - `cargo run --example stream_parser_stress`
 
 DeepSeek live tests (ignored by default; requires network + key):
 ```
@@ -202,3 +216,46 @@ Please provide a response matching this schema
 ```
 
 This schema ensures the AI understands exactly what each field represents and enforces the constraint that `correct_answer` must be exactly A, B, C, or D.
+
+## Stream-First Parsing
+
+- Structural scanner: Finds balanced JSON objects/arrays in any text, with byte indices and nested children. Works on full strings and incrementally over chunks.
+- SemanticItem<T>: an enum preserving order and fidelity:
+  - Text(TextContent { text })
+  - Data(T)
+- Query APIs:
+  - `query_with_schema<T>`: appends JSON Schema for T to the prompt.
+  - `query_semantic<T>`: returns `Vec<SemanticItem<T>>` from a one-shot response.
+  - `query_semantic_stream<T, R: AsyncRead>`: emits `SemanticItem<T>` as stream arrives.
+
+## Streaming Aggregator (SSE)
+
+Use `streaming::stream_sse_aggregated` to render in real time while also chunking text and extracting structured items.
+
+```rust
+use semantic_query::streaming::{AggregatedEvent, stream_sse_aggregated};
+use futures_util::{StreamExt, pin_mut};
+
+// reader: AsyncRead from any streaming client (e.g., FlexibleClient::stream_raw_reader)
+let evs = stream_sse_aggregated::<_, ToolCall>(reader, 8 * 1024);
+pin_mut!(evs);
+while let Some(ev) = evs.next().await {
+    match ev {
+        AggregatedEvent::Token(tok) => print!("{}", tok),         // live typing
+        AggregatedEvent::TextChunk(s) => println!("\n[agent] {}", s),
+        AggregatedEvent::Data(tc) => println!("\n[toolcall] {}", tc.name),
+    }
+}
+```
+
+## Tests
+
+- Pure tests exercising parser and SSE aggregator: `tests/stream_parser_tests.rs`, `tests/sse_aggregator_tests.rs`.
+- DeepSeek live tests (ignored by default): `tests/deepseek_live.rs`.
+
+## Linting
+
+- Rustc warnings: `cargo check --all-targets --examples`
+- Strict rustc: `RUSTFLAGS='-D warnings -W unused_braces' cargo check --all-targets --examples`
+- Clippy (recommended):
+  - `cargo clippy --all-targets --all-features -- -W clippy::all -W clippy::nursery -W clippy::pedantic -W rust-2018-idioms -W warnings`

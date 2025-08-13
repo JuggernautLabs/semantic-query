@@ -45,13 +45,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let system_instructions = r#"
 You are an assistant that thinks out loud as chat lines and emits tool calls when needed.
 Rules:
-- Chat: Use short plain text lines that read like IRC (no JSON).
+- Chat: Use plain text lines
 - Tool calls: Emit JSON objects (not arrays) that strictly match this schema:
   { "name": string, "args": object }
 - You may interleave chat and tool calls in any order.
 - Do not wrap JSON in code fences.
 - Provide at least two coherent tool calls in sequence that make sense together.
-- Do not execute tools; only emit the JSON objects.
 "#;
 
     let task = r#"
@@ -72,18 +71,87 @@ Approach: Think step-by-step, chat your thoughts, and propose tool calls.
 
     println!("=== DeepSeek Agent Demo (IRC-style, streaming) ===");
     let mut tool_calls = 0usize;
+    let mut printed_live = false;
+    let mut last_was_newline = false;
+    // Track JSON block lines to enable erase-on-parse behavior
+    let mut json_depth: i32 = 0;
+    let mut json_in_string = false;
+    let mut json_escape = false;
+    let mut json_lines_current: usize = 0;  // lines printed in current JSON block (at least 1 if started)
+    let mut json_lines_pending: usize = 0;  // lines to clear when Data(ToolCall) arrives
     while let Some(ev) = evs.next().await {
         match ev {
             AggregatedEvent::Token(tok) => {
-                print!("{}", tok);
+                // Normalize whitespace in live token stream:
+                // - drop pure whitespace tokens except at most a single newline
+                // - collapse consecutive newlines
+                let t = tok.replace("\r\n", "\n");
+                if t.chars().all(|c| c.is_whitespace()) {
+                    if t.contains('\n') && !last_was_newline {
+                        print!("\n");
+                        let _ = std::io::Write::flush(&mut std::io::stdout());
+                        last_was_newline = true;
+                        printed_live = true;
+                    }
+                    continue;
+                }
+                let t2 = t.replace("\n\n", "\n");
+                print!("{}", t2);
                 let _ = std::io::Write::flush(&mut std::io::stdout());
+                last_was_newline = t2.ends_with('\n');
+                printed_live = true;
+
+                // Update JSON scanning state based on the raw token content `tok`
+                let mut depth_before = json_depth;
+                for ch in tok.chars() {
+                    let b = ch as u32 as u8;
+                    if json_in_string {
+                        if json_escape { json_escape = false; }
+                        else if b == b'\\' { json_escape = true; }
+                        else if b == b'"' { json_in_string = false; }
+                    } else {
+                        match b {
+                            b'"' if json_depth > 0 => { json_in_string = true; }
+                            b'{' | b'[' => { json_depth += 1; }
+                            b'}' | b']' => { json_depth -= 1; }
+                            _ => {}
+                        }
+                    }
+                }
+                if depth_before == 0 && json_depth > 0 && json_lines_current == 0 {
+                    // JSON started; count current line as 1
+                    json_lines_current = 1;
+                }
+                // Count additional newlines printed for this token while in a JSON block
+                if depth_before > 0 || json_depth > 0 {
+                    let added = t2.matches('\n').count();
+                    json_lines_current = json_lines_current.saturating_add(added);
+                }
+                // If JSON just ended in this token, stage lines for pending clear on Data
+                if depth_before > 0 && json_depth == 0 && json_lines_current > 0 {
+                    json_lines_pending = json_lines_current;
+                    json_lines_current = 0;
+                }
             }
             AggregatedEvent::TextChunk(chunk) => {
-                if !chunk.trim().is_empty() { println!("\n[agent] {}", chunk.trim()); }
+                let clean = chunk.trim();
+                if clean.is_empty() { printed_live = false; continue; }
+                // If we already streamed these tokens, skip re-printing the aggregated text
+                if printed_live { printed_live = false; continue; }
+                // strip common chat prefixes like "< " if present
+                let clean = clean.trim_start_matches("< ");
+                if !last_was_newline { println!(""); }
+                println!("[agent] {}", clean);
+                last_was_newline = false;
             }
             AggregatedEvent::Data(tc) => {
+                if printed_live { printed_live = false; }
                 tool_calls += 1;
-                println!("\n[toolcall {}] name={} args=\n{}", tool_calls, tc.name, pretty_json(&tc.args));
+                if !last_was_newline { println!(""); }
+                // Colorize tool calls for readability
+                println!("{}[toolcall {}] name={}{}", COLOR_TOOL, tool_calls, tc.name, COLOR_RESET);
+                println!("{}{}{}", COLOR_TOOL, pretty_json(&tc.args), COLOR_RESET);
+                last_was_newline = false;
             }
         }
     }
@@ -100,3 +168,7 @@ Approach: Think step-by-step, chat your thoughts, and propose tool calls.
 fn pretty_json(v: &Value) -> String {
     serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
 }
+
+// Simple ANSI color helpers for nicer demo output
+const COLOR_TOOL: &str = "\x1b[38;5;213m"; // pink-ish
+const COLOR_RESET: &str = "\x1b[0m";
