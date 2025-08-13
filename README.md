@@ -90,6 +90,17 @@ async fn administer_quiz(questions: Vec<QuizQuestion>) {
   - `OPENAI_API_KEY=...` or `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION`.
 - Flexible selection: `FlexibleClient::from_type(ClientType::Claude|DeepSeek|ChatGPT)` or default based on which keys exist.
 
+### Bedrock (Claude) Support
+
+- Bedrock is available for Claude only, and is completely feature-gated.
+- To enable Bedrock via AWS SDK:
+  - Enable features: `aws-bedrock-sdk,bedrock,anthropic`
+  - Example build: `cargo run --example bedrock_stream_demo --features aws-bedrock-sdk,bedrock,anthropic`
+  - Provide AWS credentials and a region (e.g., `AWS_REGION=us-east-1`).
+- Notes:
+  - When disabled, Bedrock code is not compiled or exported — it’s impossible to reference it.
+  - Streaming uses Bedrock Runtime’s `InvokeModelWithResponseStream` and falls back to one-shot `InvokeModel` if streaming is not supported by the selected model.
+
 ## Logging via .env
 
 This project uses `tracing` for logs and reads env from `.env` (via `dotenvy`). Set `RUST_LOG` in `.env` to control verbosity without passing flags:
@@ -119,6 +130,8 @@ Examples:
   - `cargo run --example json_stream_coords_demo`
 - Stream parser stress (chunk boundaries):
   - `cargo run --example stream_parser_stress`
+- Bedrock streaming (Claude, feature-gated):
+  - `cargo run --example bedrock_stream_demo --features aws-bedrock-sdk,bedrock,anthropic`
 
 DeepSeek live tests (ignored by default; requires network + key):
 ```
@@ -228,6 +241,13 @@ This schema ensures the AI understands exactly what each field represents and en
   - `query_semantic<T>`: returns `Vec<SemanticItem<T>>` from a one-shot response.
   - `query_semantic_stream<T, R: AsyncRead>`: emits `SemanticItem<T>` as stream arrives.
 
+### Streaming Providers
+
+- Claude (Anthropic): streaming enabled.
+- Claude (Bedrock): streaming enabled when built with `aws-bedrock-sdk`.
+- DeepSeek: streaming enabled.
+- ChatGPT (OpenAI/Azure): streaming enabled.
+
 ## Streaming Aggregator (SSE)
 
 Use `streaming::stream_sse_aggregated` to render in real time while also chunking text and extracting structured items.
@@ -259,3 +279,7 @@ while let Some(ev) = evs.next().await {
 - Strict rustc: `RUSTFLAGS='-D warnings -W unused_braces' cargo check --all-targets --examples`
 - Clippy (recommended):
   - `cargo clippy --all-targets --all-features -- -W clippy::all -W clippy::nursery -W clippy::pedantic -W rust-2018-idioms -W warnings`
+
+## Models
+
+- ChatGPT family includes `OpenAIModel::Gpt5` → `"gpt-5"` (in addition to `gpt-4o`, `gpt-4o-mini`, etc.).

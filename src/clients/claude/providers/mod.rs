@@ -1,11 +1,11 @@
 #[cfg(feature = "anthropic")]
 pub mod anthropic;
-#[cfg(feature = "bedrock")]
+#[cfg(all(feature = "bedrock", feature = "aws-bedrock-sdk"))]
 pub mod bedrock;
 
 #[cfg(feature = "anthropic")]
 pub use anthropic::*;
-#[cfg(feature = "bedrock")]
+#[cfg(all(feature = "bedrock", feature = "aws-bedrock-sdk"))]
 pub use bedrock::*;
 
 use crate::error::AIError;

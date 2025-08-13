@@ -6,7 +6,7 @@ use super::models::ClaudeModel;
 pub enum Provider {
     #[cfg(feature = "anthropic")] 
     Anthropic,
-    #[cfg(feature = "bedrock")] 
+    #[cfg(all(feature = "bedrock", feature = "aws-bedrock-sdk"))] 
     AwsBedrock,
 }
 
@@ -69,7 +69,7 @@ impl ClaudeConfig {
         }
     }
 
-    #[cfg(feature = "bedrock")] 
+    #[cfg(all(feature = "bedrock", feature = "aws-bedrock-sdk"))] 
     #[must_use]
     pub fn bedrock(aws_region: String, model: ClaudeModel) -> Self {
         Self {

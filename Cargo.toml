@@ -29,6 +29,11 @@ futures-util = "0.3"
 bytes = "1"
 tokio-util = { version = "0.7", features = ["io"] }
 
+# Optional AWS SDK for Bedrock (feature-gated)
+aws-config = { version = "1", optional = true }
+aws-sdk-bedrockruntime = { version = "1", optional = true }
+aws-smithy-types = { version = "1", optional = true }
+
 [dev-dependencies]
 
 [features]
@@ -36,3 +41,4 @@ default = ["anthropic", "deepseek"]
 anthropic = []
 bedrock = []
 deepseek = []
+aws-bedrock-sdk = ["aws-config", "aws-sdk-bedrockruntime", "aws-smithy-types", "bedrock"]

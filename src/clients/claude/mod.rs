@@ -2,6 +2,10 @@ pub mod providers;
 pub mod models;
 pub mod config;
 
+// Ensure at least one provider is enabled at compile time for Claude
+#[cfg(all(not(feature = "anthropic"), not(feature = "bedrock")))]
+compile_error!("No Claude providers are enabled. Enable at least one feature: 'anthropic' or 'bedrock'.");
+
 pub use providers::*;
 pub use models::*;
 pub use config::*;
@@ -66,7 +70,7 @@ impl ClaudeClient {
         let provider = match config.provider {
             #[cfg(feature = "anthropic")] 
             Provider::Anthropic => ClaudeClientProvider::Anthropic(AnthropicProvider::new(config.clone())),
-            #[cfg(feature = "bedrock")] 
+            #[cfg(all(feature = "bedrock", feature = "aws-bedrock-sdk"))] 
             Provider::AwsBedrock => ClaudeClientProvider::Bedrock(BedrockProvider::new(config.clone())),
             #[allow(unreachable_patterns)]
             _ => panic!("Requested provider is not enabled via features"),
