@@ -29,8 +29,20 @@ impl BedrockProvider {
         
         // For demonstration purposes, we'll return an error indicating this needs AWS SDK
         Err(AIError::Claude(ClaudeError::Api(
-            "AWS Bedrock provider requires AWS SDK implementation. Please add aws-sdk-bedrockruntime dependency.".to_string()
+            "AWS Bedrock provider not wired. Enable the optional `aws-bedrock-sdk` feature and provide credentials to call Bedrock Runtime.".to_string()
         )))
+    }
+
+    /// Streaming (SSE-like) Bedrock calling can be added under an optional feature.
+    /// This keeps default builds light, while allowing true streaming when enabled.
+    #[cfg(feature = "aws-bedrock-sdk")]
+    async fn stream_bedrock_api(
+        &self,
+        _request: &ClaudeRequest,
+    ) -> Result<std::pin::Pin<Box<dyn futures_core::Stream<Item = Result<bytes::Bytes, AIError>> + Send>>, AIError> {
+        // TODO: implement using aws-sdk-bedrockruntime InvokeModelWithResponseStream
+        // Map stream of byte payloads into Bytes and AIError
+        Err(AIError::Claude(ClaudeError::Api("Bedrock streaming TODO".into())))
     }
 }
 

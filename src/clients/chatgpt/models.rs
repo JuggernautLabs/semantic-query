@@ -1,5 +1,7 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum OpenAIModel {
+    // Next-gen ChatGPT model
+    Gpt5,
     Gpt4o,
     Gpt4oMini,
     Gpt4_1,
@@ -14,6 +16,7 @@ pub enum OpenAIModel {
 impl OpenAIModel {
     pub fn id(&self) -> &str {
         match self {
+            OpenAIModel::Gpt5 => "gpt-5",
             OpenAIModel::Gpt4o => "gpt-4o",
             OpenAIModel::Gpt4oMini => "gpt-4o-mini",
             OpenAIModel::Gpt4_1 => "gpt-4.1",
@@ -26,4 +29,3 @@ impl OpenAIModel {
         }
     }
 }
-
