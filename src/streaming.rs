@@ -27,9 +27,9 @@ where
         let mut sse_event = String::new();
         let mut text_buf = String::new();
         // Track whether we're inside a JSON structure being streamed
-        let mut depth: i32 = 0;
-        let mut in_string = false;
-        let mut escape = false;
+        let _depth: i32 = 0;
+        let _in_string = false;
+        let _escape = false;
 
         while let Ok(Some(line)) = br.next_line().await {
             if line.is_empty() {

@@ -213,6 +213,49 @@ pub fn deserialize_stream_map<T: DeserializeOwned>(text: &str) -> Vec<ParsedOrUn
     out
 }
 
+/// Extract all occurrences of `T` from a response string.
+///
+/// Strategy (in order):
+/// - If the entire string parses as `Vec<T>`, return it.
+/// - Otherwise, scan for JSON structures. For each structure, try to parse as `Vec<T>`
+///   (to support top-level arrays). If any succeeds, extend the result.
+/// - Finally, fall back to scanning for individual `T` instances across all structures
+///   (using `deserialize_stream_map`) and return them in discovery order.
+#[instrument(target = "semantic_query::json_stream", skip(text))]
+pub fn extract_all<T: DeserializeOwned>(text: &str) -> Vec<T> {
+    // Try direct parse as Vec<T>
+    if let Ok(v) = serde_json::from_str::<Vec<T>>(text) {
+        return v;
+    }
+
+    // Recursively traverse JSON structures, preferring Vec<T> at any node,
+    // then T at the same node, otherwise descend to children.
+    fn collect_from_node<T: DeserializeOwned>(text: &str, node: &ObjCoords, out: &mut Vec<T>) -> bool {
+        let slice_end = node.end + 1;
+        let s = &text[node.start..slice_end];
+        if let Ok(vs) = serde_json::from_str::<Vec<T>>(s) {
+            out.extend(vs);
+            return true; // consumed node; skip children
+        }
+        if let Ok(v) = serde_json::from_str::<T>(s) {
+            out.push(v);
+            return true; // consumed node; skip children
+        }
+        // Descend
+        for child in &node.children {
+            collect_from_node::<T>(text, child, out);
+        }
+        false
+    }
+
+    let mut out: Vec<T> = Vec::new();
+    let roots = find_json_structures(text);
+    for node in &roots {
+        collect_from_node::<T>(text, node, &mut out);
+    }
+    out
+}
+
 /// Spawn a background task that reads from an `AsyncRead` and streams discovered JSON
 /// root coordinates as they are closed. Returns an `mpsc::Receiver<ObjCoords>`.
 pub fn stream_coords_from_async_read<R>(mut reader: R, buf_size: usize) -> mpsc::Receiver<ObjCoords>
