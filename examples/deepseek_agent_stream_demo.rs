@@ -146,6 +146,13 @@ Approach: Think step-by-step, chat your thoughts, and propose tool calls.
             }
             AggregatedEvent::Data(tc) => {
                 if printed_live { printed_live = false; }
+                // If we have pending JSON lines that were printed raw, erase them now
+                if json_lines_pending > 0 {
+                    // Move cursor up and clear to end of screen
+                    print!("\x1b[{}A\x1b[J", json_lines_pending);
+                    let _ = std::io::Write::flush(&mut std::io::stdout());
+                    json_lines_pending = 0;
+                }
                 tool_calls += 1;
                 if !last_was_newline { println!(""); }
                 // Colorize tool calls for readability

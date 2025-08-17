@@ -157,18 +157,45 @@ impl FlexibleClient {
             interceptor: Some(Arc::new(FileInterceptor::new(path))),
         }
     }
-    /// Create a `FlexibleClient` with a Claude client
+    /// Create a `FlexibleClient` with a Claude client (explicit config)
     #[must_use]
-    pub fn claude(config: ClaudeConfig) -> Self {
+    pub fn claude_with(config: ClaudeConfig) -> Self {
         use super::claude::ClaudeClient;
         Self::new(Box::new(ClaudeClient::new(config)))
     }
-    
-    /// Create a `FlexibleClient` with a `DeepSeek` client  
+
+    /// Create a `FlexibleClient` with a Claude client using default config from env
     #[must_use]
-    pub fn deepseek(config: DeepSeekConfig) -> Self {
+    pub fn claude() -> Self {
+        use super::claude::ClaudeClient;
+        Self::new(Box::new(ClaudeClient::default()))
+    }
+    
+    /// Create a `FlexibleClient` with a `DeepSeek` client (explicit config)
+    #[must_use]
+    pub fn deepseek_with(config: DeepSeekConfig) -> Self {
         use super::deepseek::DeepSeekClient;
         Self::new(Box::new(DeepSeekClient::new(config)))
+    }
+
+    /// Create a `FlexibleClient` with a `DeepSeek` client using default config from env
+    #[must_use]
+    pub fn deepseek() -> Self {
+        use super::deepseek::DeepSeekClient;
+        Self::new(Box::new(DeepSeekClient::default()))
+    }
+
+    /// Create a `FlexibleClient` with a ChatGPT-family client (OpenAI/Azure) based on env
+    #[must_use]
+    pub fn chatgpt() -> Self {
+        // Reuse the same selection logic as in ClientType::ChatGPT
+        Self::new(ClientType::ChatGPT.into())
+    }
+
+    /// Create a `FlexibleClient` by auto-selecting provider based on available env keys
+    #[must_use]
+    pub fn auto() -> Self {
+        Self::new(ClientType::default().into())
     }
     
     
@@ -259,5 +286,14 @@ impl LowLevelClient for FlexibleClient {
     
     fn clone_box(&self) -> Box<dyn LowLevelClient> {
         Box::new(self.clone())
+    }
+
+    fn stream_raw(&self, prompt: String) -> Option<Pin<Box<dyn futures_core::stream::Stream<Item = Result<Bytes, AIError>> + Send>>> {
+        // Delegate to underlying client's streaming capability
+        let client = {
+            let inner = self.inner.lock().unwrap();
+            inner.as_ref().clone_box()
+        };
+        client.stream_raw(prompt)
     }
 }

@@ -7,6 +7,9 @@ use tracing::{debug, instrument};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use async_stream::stream;
 use futures_core::stream::Stream;
+use futures_util::StreamExt;
+use bytes::Bytes;
+use std::pin::Pin;
 
 /// Represents a piece of unstructured text content returned by the model.
 ///
@@ -19,7 +22,7 @@ pub struct TextContent {
     pub text: String,
 }
 
-/// A semantic item in the model's response stream: either text or typed data `T`.
+/// A semantic item in the model's response stream: token, text, or typed data `T`.
 ///
 /// Usage:
 /// - One-shot: `Vec<SemanticItem<T>>` via `QueryResolver::query_semantic`.
@@ -30,6 +33,9 @@ pub enum SemanticItem<T>
 where
     T: JsonSchema,
 {
+    /// Individual token for real-time display
+    #[serde(skip)]
+    Token(String),
     /// Free-form text emitted by the model.
     Text(TextContent),
     /// Structured data conforming to the user-provided schema.
@@ -178,6 +184,144 @@ where
             let text_slice = &accum[last_offset..];
             if !text_slice.trim().is_empty() {
                 yield SemanticItem::Text(TextContent { text: text_slice.to_string() });
+            }
+        }
+    }
+}
+
+/// Stream `SemanticItem<T>` from a bytes stream (such as from an HTTP response).
+///
+/// This is the high-level streaming adapter that converts raw bytes into semantic items
+/// with proper error handling. It automatically handles UTF-8 conversion and incremental
+/// JSON parsing without exposing low-level buffer management.
+pub fn stream_semantic_from_bytes_stream<T>(
+    byte_stream: Pin<Box<dyn Stream<Item = Result<Bytes, crate::error::AIError>> + Send>>
+) -> impl Stream<Item = Result<SemanticItem<T>, crate::error::QueryResolverError>>
+where
+    T: DeserializeOwned + JsonSchema + Send + 'static,
+{
+    stream! {
+        let mut parser = crate::json_utils::JsonStreamParser::new();
+        let mut accum = String::new();
+        let mut last_offset: usize = 0;
+        
+        let mut byte_stream = byte_stream;
+        while let Some(chunk_result) = byte_stream.next().await {
+            match chunk_result {
+                Ok(bytes) => {
+                    // Convert bytes to string
+                    match std::str::from_utf8(&bytes) {
+                        Ok(s) => {
+                            accum.push_str(s);
+                            
+                            // Process any complete JSON structures
+                            for node in parser.feed(s) {
+                                // Emit text before node
+                                if node.start > last_offset && node.start <= accum.len() {
+                                    let text_slice = &accum[last_offset..node.start];
+                                    if !text_slice.trim().is_empty() {
+                                        yield Ok(SemanticItem::Text(TextContent { text: text_slice.to_string() }));
+                                    }
+                                }
+
+                                // Process node slice
+                                let end = node.end + 1;
+                                if end <= accum.len() {
+                                    let json_slice = &accum[node.start..end];
+                                    let mapped: Vec<ParsedOrUnknown<T>> = deserialize_stream_map::<T>(json_slice);
+                                    if mapped.is_empty() {
+                                        yield Ok(SemanticItem::Text(TextContent { text: json_slice.to_string() }));
+                                    } else {
+                                        let mut any_parsed = false;
+                                        for item in mapped {
+                                            match item {
+                                                ParsedOrUnknown::Parsed(v) => { 
+                                                    any_parsed = true; 
+                                                    yield Ok(SemanticItem::Data(v)); 
+                                                }
+                                                ParsedOrUnknown::Unknown(u) => {
+                                                    let u_end = u.end + 1;
+                                                    if u_end <= json_slice.len() && u.start < u_end {
+                                                        let sub = &json_slice[u.start..u_end];
+                                                        yield Ok(SemanticItem::Text(TextContent { text: sub.to_string() }));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if !any_parsed { 
+                                            yield Ok(SemanticItem::Text(TextContent { text: json_slice.to_string() })); 
+                                        }
+                                    }
+                                    last_offset = end;
+                                }
+                            }
+                        }
+                        Err(utf8_err) => {
+                            yield Err(crate::error::QueryResolverError::Ai(
+                                crate::error::AIError::Mock(format!("UTF-8 decode error: {}", utf8_err))
+                            ));
+                            break;
+                        }
+                    }
+                }
+                Err(ai_error) => {
+                    yield Err(crate::error::QueryResolverError::Ai(ai_error));
+                    break;
+                }
+            }
+        }
+        
+        // Emit any remaining text
+        if last_offset < accum.len() {
+            let text_slice = &accum[last_offset..];
+            if !text_slice.trim().is_empty() {
+                yield Ok(SemanticItem::Text(TextContent { text: text_slice.to_string() }));
+            }
+        }
+    }
+}
+
+/// Stream `SemanticItem<T>` from an SSE bytes stream with proper token aggregation.
+///
+/// This processes Server-Sent Events format and aggregates tokens from the content field
+/// into semantic items. It handles the complexity of SSE parsing and JSON extraction
+/// so users get clean Text/Data events.
+pub fn stream_semantic_from_sse_bytes<T>(
+    byte_stream: Pin<Box<dyn Stream<Item = Result<Bytes, crate::error::AIError>> + Send>>
+) -> impl Stream<Item = Result<SemanticItem<T>, crate::error::QueryResolverError>>
+where
+    T: DeserializeOwned + JsonSchema + Send + 'static,
+{
+    stream! {
+        use crate::streaming::{stream_sse_aggregated, AggregatedEvent};
+        use tokio_util::io::StreamReader;
+        
+        // Convert bytes stream to AsyncRead
+        let io_stream = byte_stream.map(|res| match res {
+            Ok(bytes) => Ok::<Bytes, std::io::Error>(bytes),
+            Err(e) => Err(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
+        });
+        let reader = StreamReader::new(io_stream);
+        
+        // Use the existing SSE aggregation logic
+        let aggregated_stream = stream_sse_aggregated::<_, T>(reader, 8192);
+        futures_util::pin_mut!(aggregated_stream);
+        
+        while let Some(event) = aggregated_stream.next().await {
+            match event {
+                AggregatedEvent::Token(token) => {
+                    // Emit individual tokens for real-time display
+                    yield Ok(SemanticItem::Token(token));
+                }
+                AggregatedEvent::TextChunk(text) => {
+                    let clean_text = text.trim();
+                    if !clean_text.is_empty() {
+                        yield Ok(SemanticItem::Text(TextContent { text: clean_text.to_string() }));
+                    }
+                }
+                AggregatedEvent::Data(parsed_item) => {
+                    yield Ok(SemanticItem::Data(parsed_item));
+                }
             }
         }
     }

@@ -6,6 +6,7 @@ use futures_util::{StreamExt, TryStreamExt};
 use crate::config::KeyFromEnv;
 use crate::error::{AIError, DeepSeekError};
 use async_trait::async_trait;
+use async_stream;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn, error, debug, instrument};

@@ -30,8 +30,8 @@ where
         let _depth: i32 = 0;
         let _in_string = false;
         let _escape = false;
+         while let Ok(Some(line)) = br.next_line().await {
 
-        while let Ok(Some(line)) = br.next_line().await {
             if line.is_empty() {
                 // process event
                 if let Some(payload) = sse_event.strip_prefix("data: ") {

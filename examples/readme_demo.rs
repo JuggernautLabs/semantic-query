@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .try_init();
     // Create client (env handled by FlexibleClient)
-    let client = FlexibleClient::deepseek(DeepSeekConfig::default());
+    let client = FlexibleClient::deepseek();
     let resolver = QueryResolver::new(client, RetryConfig::default());
     
     // Get 10 science quiz questions

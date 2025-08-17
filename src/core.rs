@@ -137,8 +137,9 @@ impl<C: LowLevelClient> QueryResolver<C> {
     
     /// Return a deserialized value `T` with automatic JSON Schema guidance.
     ///
-    /// Appends the JSON Schema for `T` to the prompt and enforces
-    /// “JSON only” output, improving reliability.
+    /// Appends the JSON Schema for `T` to the prompt and guides the model to
+    /// include a valid JSON value somewhere in the response (our parser can
+    /// extract JSON from interleaved text or streamed output).
     #[instrument(target = "semantic_query::resolver", skip(self, prompt), fields(prompt_len = prompt.len()))]
     pub async fn query_with_schema<T>(&self, prompt: String) -> Result<T, QueryResolverError>
     where
@@ -151,25 +152,6 @@ impl<C: LowLevelClient> QueryResolver<C> {
             Err(e) => error!(error = %e, "Schema-aware query failed"),
         }
         result
-    }
-
-    /// Return a mixed, ordered vector of text and structured items.
-    ///
-    /// Returns an ordered vector where each element is either free-form text
-    /// or a structured `T`, allowing downstream systems to retain full context
-    /// and interleave commentary and data as the model deems useful.
-    #[instrument(target = "semantic_query::resolver", skip(self, prompt), fields(prompt_len = prompt.len()))]
-    pub async fn query_semantic<T>(&self, prompt: String) -> Result<Vec<SemanticItem<T>>, QueryResolverError>
-    where
-        T: DeserializeOwned + JsonSchema + Send,
-    {
-        info!(prompt_len = prompt.len(), "Starting semantic query (text + data)");
-        // Guide the model to output interleaved content using the schema for SemanticItem<T>
-        let augmented = self.augment_prompt_with_semantic_schema::<T>(prompt);
-        debug!(augmented_prompt_len = augmented.len(), "Generated semantic schema-augmented prompt");
-        let raw = self.client.ask_raw(augmented).await?;
-        let stream = crate::semantic::build_semantic_stream::<T>(&raw);
-        Ok(stream)
     }
     
     /// Internal method for retry logic with JSON parsing
@@ -280,7 +262,7 @@ impl<C: LowLevelClient> QueryResolver<C> {
         
         format!(
             r#"{prompt}
-You must output only a single JSON value that strictly conforms to the following JSON Schema. Do not include explanations, prose, code fences labels, or additional text — only the JSON value itself.
+Include at least one JSON value that strictly conforms to the following JSON Schema. You may include additional explanatory text before or after; the JSON must be valid and can appear anywhere in your response.
 ```json
 {schema_json}
 ```
@@ -288,29 +270,7 @@ You must output only a single JSON value that strictly conforms to the following
         )
     }
 
-    /// Augment prompt specifically for semantic streams (text + data items)
-    pub fn augment_prompt_with_semantic_schema<T>(&self, prompt: String) -> String
-    where
-        T: JsonSchema,
-    {
-        let schema = schema_for!(Vec<crate::semantic::SemanticItem<T>>);
-        let schema_json = serde_json::to_string_pretty(&schema)
-            .unwrap_or_else(|_| "{}".to_string());
 
-        debug!(schema_len = schema_json.len(), "Generated JSON schema for semantic stream");
-
-        format!(
-            r#"{prompt}
-Return a single JSON array of items in order. Each item must be one of:
-- Text: {{"kind":"Text","content":{{"text":"..."}}}}
-- Data: {{"kind":"Data","content": <object matching the provided schema>}}
-Do not include any text outside the JSON array. No code fences.
-```json
-{schema_json}
-```
-"#
-        )
-    }
 
     /// Ask with automatic schema-aware prompt augmentation
     #[instrument(skip(self, prompt), fields(prompt_len = prompt.len()))]
@@ -324,10 +284,69 @@ Do not include any text outside the JSON array. No code fences.
         self.ask_with_retry(augmented_prompt).await
     }
 
+    /// Stream semantic items (text + structured data) from a live model response.
+    ///
+    /// This is the high-level streaming API that handles all the complexity internally:
+    /// - Automatically augments prompt with schema guidance for T (JSON can appear anywhere)
+    /// - Initiates streaming API call  
+    /// - Parses response into Text/Data(T) items in real-time
+    /// - No manual buffer management or token handling required
+    ///
+    /// Example:
+    /// ```no_run
+    /// use futures_util::StreamExt;
+    /// use semantic_query::core::{QueryResolver, RetryConfig};
+    /// use semantic_query::semantic::{SemanticItem};
+    /// use semantic_query::clients::flexible::FlexibleClient;
+    /// use serde::Deserialize;
+    /// use schemars::JsonSchema;
+    ///
+    /// #[derive(Deserialize, JsonSchema)]
+    /// struct ToolCall { name: String, args: serde_json::Value }
+    ///
+    /// # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = FlexibleClient::mock().0;
+    /// let resolver = QueryResolver::new(client, RetryConfig::default());
+    /// let mut stream = resolver.stream_semantic::<ToolCall>("Think step-by-step and use tools".to_string()).await?;
+    /// while let Some(item) = stream.next().await {
+    ///     match item {
+    ///         Ok(SemanticItem::Token(tok)) => print!("{}", tok), // Real-time tokens
+    ///         Ok(SemanticItem::Text(t)) => println!("[chat] {}", t.text),
+    ///         Ok(SemanticItem::Data(d)) => println!("[tool] {}", d.name),
+    ///         Err(e) => eprintln!("Stream error: {}", e),
+    ///     }
+    /// }
+    /// # Ok(()) }
+    /// ```
+    #[instrument(target = "semantic_query::resolver", skip(self, prompt), fields(prompt_len = prompt.len()))]
+    pub async fn stream_semantic<T>(&self, prompt: String) -> Result<Pin<Box<dyn futures_core::stream::Stream<Item = Result<SemanticItem<T>, crate::error::QueryResolverError>> + Send>>, crate::error::QueryResolverError>
+    where
+        T: DeserializeOwned + JsonSchema + Send + 'static,
+    {
+        info!(prompt_len = prompt.len(), "Starting semantic streaming query");
+        
+        // For streaming, we don't want the semantic schema - just the data schema
+        // The semantic items are created by our parser, not returned by the model
+        let augmented_prompt = self.augment_prompt_with_schema::<T>(prompt);
+        debug!(prompt_len = augmented_prompt.len(), "Using raw prompt for streaming");
+        
+        // Get streaming response
+        let stream = self.client.stream_raw(augmented_prompt)
+            .ok_or_else(|| {
+                warn!("Client does not support streaming");
+                crate::error::QueryResolverError::Ai(crate::error::AIError::Mock("Client does not support streaming".to_string()))
+            })?;
+        
+        info!("Successfully initiated streaming response");
+        
+        // Convert SSE bytes stream to semantic items and box it
+        Ok(Box::pin(crate::semantic::stream_semantic_from_sse_bytes::<T>(stream)))
+    }
+
     /// Stream `SemanticItem<T>` from any `AsyncRead` of model output.
     ///
-    /// Wraps the stream-first JSON structure parser to emit `Text` chunks for
-    /// non-JSON and `Data(T)` when a structure deserializes to `T`.
+    /// Lower-level API for when you already have a reader. Most users should use
+    /// `stream_semantic()` instead for the full end-to-end experience.
     ///
     /// Example (synthetic stream):
     /// ```no_run
