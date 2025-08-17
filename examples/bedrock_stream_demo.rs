@@ -3,15 +3,24 @@
 //! Ensure AWS credentials and a region are available (e.g., AWS_REGION),
 //! or pass region in ClaudeConfig::bedrock.
 
+#[cfg(all(feature = "aws-bedrock-sdk", feature = "bedrock", feature = "anthropic"))]
 use semantic_query::clients::flexible::FlexibleClient;
+#[cfg(all(feature = "aws-bedrock-sdk", feature = "bedrock", feature = "anthropic"))]
 use semantic_query::clients::claude::{ClaudeConfig, ClaudeModel};
+#[cfg(all(feature = "aws-bedrock-sdk", feature = "bedrock", feature = "anthropic"))]
 use semantic_query::core::{QueryResolver, RetryConfig};
+#[cfg(all(feature = "aws-bedrock-sdk", feature = "bedrock", feature = "anthropic"))]
 use semantic_query::semantic::{SemanticItem, TextContent};
+#[cfg(all(feature = "aws-bedrock-sdk", feature = "bedrock", feature = "anthropic"))]
 use futures_util::{StreamExt, pin_mut};
+#[cfg(all(feature = "aws-bedrock-sdk", feature = "bedrock", feature = "anthropic"))]
 use schemars::JsonSchema;
+#[cfg(all(feature = "aws-bedrock-sdk", feature = "bedrock", feature = "anthropic"))]
 use serde::Deserialize;
 
+#[cfg(all(feature = "aws-bedrock-sdk", feature = "bedrock", feature = "anthropic"))]
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct ToolCall { name: String, args: serde_json::Value }
 
 #[cfg(all(feature = "aws-bedrock-sdk", feature = "bedrock", feature = "anthropic"))]

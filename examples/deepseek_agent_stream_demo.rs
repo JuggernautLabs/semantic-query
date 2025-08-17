@@ -102,7 +102,7 @@ Approach: Think step-by-step, chat your thoughts, and propose tool calls.
                 printed_live = true;
 
                 // Update JSON scanning state based on the raw token content `tok`
-                let mut depth_before = json_depth;
+                let depth_before = json_depth;
                 for ch in tok.chars() {
                     let b = ch as u32 as u8;
                     if json_in_string {

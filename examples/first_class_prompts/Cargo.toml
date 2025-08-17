@@ -1,0 +1,18 @@
+[package]
+name = "first_class_prompts"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "first_class_prompts"
+path = "src/lib.rs"
+
+[dependencies]
+semantic_query = { path = "../.." }
+schemars = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+futures-util = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+dotenvy = "0.15"

@@ -4,7 +4,6 @@
 //! the resolver-level streaming API. It demonstrates how to interleave Text and Data(T)
 //! items and where to hook realtime toolcalls.
 
-use std::default;
 
 use futures_util::{pin_mut, StreamExt}; // for pin_mut + .next()
 use schemars::JsonSchema;
@@ -50,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("data: {}", d.message);
                 // Hook: trigger a toolcall here based on `d`
             }
-            default => continue
+            _default => continue
         }
     }
 
