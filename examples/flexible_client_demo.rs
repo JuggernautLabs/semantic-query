@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-use semantic_query::{core::{LowLevelClient, QueryResolver, RetryConfig}, clients::flexible::FlexibleClient};
-use serde::{Deserialize};
+use semantic_query::{core::{LowLevelClient, RetryConfig}, clients::flexible::FlexibleClient, QueryResolverV2};
+use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 struct SimpleResponse {
     message: String,
     success: bool,
@@ -36,13 +36,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _boxed_client = cloned_mock.clone_box();
     println!("   ✅ Extracted boxed client from FlexibleClient");
     
-    // Use with QueryResolver
-    println!("\n4. Using with QueryResolver:");
-    let resolver = QueryResolver::new(mock_client, RetryConfig::default());
+    // Use with QueryResolverV2
+    println!("\n4. Using with QueryResolverV2:");
+    let resolver = QueryResolverV2::new(mock_client, RetryConfig::default());
     
     // Try a simple query (will return empty {} from mock)
-    match resolver.query_with_schema::<SimpleResponse>("Hello world".to_string()).await {
-        Ok(response) => println!("   ✅ Query succeeded: {:?}", response),
+    match resolver.query::<SimpleResponse>("Hello world".to_string()).await {
+        Ok(response) => {
+            if let Some(data) = response.first() {
+                println!("   ✅ Query succeeded: {:?}", data);
+            } else {
+                println!("   ❌ No data found in response");
+            }
+        }
         Err(e) => println!("   ❌ Query failed (expected with mock): {}", e),
     }
     
@@ -56,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("    - Easy construction with FlexibleClient::mock(), ::claude(), ::deepseek()");
     println!("    - Seamless cloning with .clone()");
     println!("    - Extract boxed clients with .clone_inner() or .into_inner()");
-    println!("    - Works directly with QueryResolver");
+    println!("    - Works directly with QueryResolverV2");
     
     Ok(())
 }

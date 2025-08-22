@@ -1,5 +1,5 @@
 use schemars::{schema_for, JsonSchema};
-use semantic_query::core::{QueryResolver, RetryConfig};
+use semantic_query::{core::{QueryResolver, RetryConfig}, QueryResolverV2};
 use serde::Serialize;
 use serde_json::Value;
 use serde::de::DeserializeOwned;
@@ -112,11 +112,12 @@ where
         &self,
         client: impl semantic_query::core::LowLevelClient + 'static,
     ) -> Result<
-        std::pin::Pin<Box<dyn Stream<Item = Result<semantic_query::streaming::AggregatedEvent<T>, semantic_query::error::QueryResolverError>> + Send>>,
+        std::pin::Pin<Box<dyn Stream<Item = Result<semantic_query::streaming::StreamItem<T>, semantic_query::error::QueryResolverError>> + Send>>,
         semantic_query::error::QueryResolverError,
     > {
        let qr = QueryResolver::new(client, RetryConfig::default());
-       qr.query_semantic_stream(reader, buf_size)
+       let prompt = render_prompt(self);
+       qr.stream_query(prompt)
 
     }
 
@@ -125,12 +126,12 @@ where
         &self,
         client: impl semantic_query::core::LowLevelClient + 'static,
     ) -> Result<
-        std::pin::Pin<Box<dyn Stream<Item = Result<semantic_query::semantic::StreamItem<T>, semantic_query::error::QueryResolverError>> + Send>>,
+        std::pin::Pin<Box<dyn Stream<Item = Result<semantic_query::streaming::StreamItem<T>, semantic_query::error::QueryResolverError>> + Send>>,
         semantic_query::error::QueryResolverError,
     > {
         let prompt = render_prompt(self);
         if let Some(byte_stream) = client.stream_raw(prompt) {
-            let s = semantic_query::semantic::stream_semantic_from_sse_bytes::<T>(Box::pin(byte_stream));
+            let s = semantic_query::streaming::stream_from_sse_bytes::<T>(Box::pin(byte_stream));
             return Ok(Box::pin(s));
         }
 
@@ -139,7 +140,7 @@ where
         let s = stream! {
             match client.ask_raw(prompt2).await {
                 Ok(raw) => {
-                    let items = semantic_query::semantic::build_semantic_stream::<T>(&raw);
+                    let items = semantic_query::streaming::build_parsed_stream::<T>(&raw);
                     for item in items {
                         yield Ok(item);
                     }
@@ -153,5 +154,5 @@ where
 
 // Re-export common semantic_query items for downstream convenience
 pub mod prelude {
-    pub use semantic_query::semantic::{StreamItem, TextContent};
+    pub use semantic_query::streaming::{StreamItem, TextContent};
 }

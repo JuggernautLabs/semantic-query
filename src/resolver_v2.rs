@@ -72,6 +72,11 @@ impl<T: JsonSchema + serde::Serialize + Clone> ParsedResponse<T> {
         self.data_only().into_iter().next()
     }
     
+    /// Get the first data item if any exists (convenience method)
+    pub fn first(&self) -> Option<&T> {
+        self.first_data()
+    }
+    
     /// Check if any data was extracted
     pub fn has_data(&self) -> bool {
         self.data_only().len() > 0
@@ -140,7 +145,7 @@ impl<C: LowLevelClient> QueryResolverV2<C> {
     {
         info!(prompt_len = prompt.len(), "Starting mixed content query");
         
-        let raw_response = self.ask_with_retry(prompt).await?;
+        let raw_response = self.client.ask_raw(prompt).await?;
         let stream_items = build_parsed_stream::<T>(&raw_response);
         let response = ParsedResponse::from_stream_items(stream_items);
         
@@ -155,7 +160,7 @@ impl<C: LowLevelClient> QueryResolverV2<C> {
     /// This is like the old `query_with_schema` but returns all instances found,
     /// not just the first one. Includes context for better error reporting.
     #[instrument(target = "semantic_query::resolver_v2", skip(self, prompt), fields(prompt_len = prompt.len()))]
-    pub async fn query_extract_all<T>(&self, prompt: String) -> Result<ParsedResponse<T>, QueryResolverError>
+    pub async fn query<T>(&self, prompt: String) -> Result<ParsedResponse<T>, QueryResolverError>
     where
         T: DeserializeOwned + JsonSchema + Send + Debug + serde::Serialize + Clone,
     {
@@ -165,31 +170,6 @@ impl<C: LowLevelClient> QueryResolverV2<C> {
         self.query_mixed(schema_prompt).await
     }
     
-    /// Extract the first instance of T with schema guidance
-    /// 
-    /// Similar to the old behavior but provides better error context.
-    /// Returns the mixed result so you can see what text surrounded the data.
-    #[instrument(target = "semantic_query::resolver_v2", skip(self, prompt), fields(prompt_len = prompt.len()))]
-    pub async fn query_extract_first<T>(&self, prompt: String) -> Result<ParsedResponse<T>, QueryResolverError>
-    where
-        T: DeserializeOwned + JsonSchema + Send + Debug + serde::Serialize + Clone,
-    {
-        info!(prompt_len = prompt.len(), "Starting extract first query");
-        
-        let result = self.query_extract_all(prompt).await?;
-        
-        if !result.has_data() {
-            warn!("No data found in response, context: {:?}", result.text_content());
-            return Err(QueryResolverError::JsonDeserialization(
-                serde_json::Error::io(std::io::Error::new(std::io::ErrorKind::Other, "No matching JSON structure found in response")),
-                result.text_content(),
-            ));
-        }
-        
-        info!("Found {} data items, returning first", result.data_count());
-        Ok(result)
-    }
-    
     /// Compatibility method: behaves like the old query_with_schema
     /// but returns just the first T instance for drop-in replacement
     #[instrument(target = "semantic_query::resolver_v2", skip(self, prompt), fields(prompt_len = prompt.len()))]
@@ -197,7 +177,7 @@ impl<C: LowLevelClient> QueryResolverV2<C> {
     where
         T: DeserializeOwned + JsonSchema + Send + Debug + serde::Serialize + Clone,
     {
-        let result: ParsedResponse<T> = self.query_extract_first(prompt).await?;
+        let result: ParsedResponse<T> = self.query(prompt).await?;
         Ok(result.data_only().into_iter().next().unwrap().clone()) // Safe because extract_first ensures data exists
     }
     
@@ -216,32 +196,6 @@ impl<C: LowLevelClient> QueryResolverV2<C> {
         )
     }
     
-    /// Internal retry logic (similar to V1 but simplified)
-    async fn ask_with_retry(&self, prompt: String) -> Result<String, QueryResolverError> {
-        let mut attempt = 0;
-        let max_retries = self.config.default_max_retries;
-        
-        loop {
-            debug!(attempt = attempt + 1, max_retries = max_retries, "Making API call");
-            
-            match self.client.ask_raw(prompt.clone()).await {
-                Ok(response) => {
-                    debug!(response_len = response.len(), "Received API response");
-                    return Ok(response);
-                }
-                Err(ai_error) => {
-                    warn!(error = %ai_error, attempt = attempt + 1, "API call failed");
-                    
-                    if attempt >= max_retries {
-                        error!(error = %ai_error, max_retries = max_retries, "Max retries exceeded");
-                        return Err(QueryResolverError::Ai(ai_error));
-                    }
-                    
-                    attempt += 1;
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -297,7 +251,7 @@ mod tests {
         
         handle.add_response(crate::clients::MockResponse::Success("Just plain text with no JSON data.".to_string()));
         
-        let result = resolver.query_extract_first::<TestData>("test".to_string()).await;
+        let result = resolver.query::<TestData>("test".to_string()).await;
         
         assert!(result.is_err());
         // Should include context in error

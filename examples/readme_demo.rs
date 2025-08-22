@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
-use serde::{Deserialize};
+use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 use semantic_query::clients::flexible::FlexibleClient;
-use semantic_query::core::{QueryResolver, RetryConfig};
+use semantic_query::{core::RetryConfig, QueryResolverV2};
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 struct QuizQuestion {
     /// The main question text to be asked
     pub question: String,
@@ -24,7 +24,7 @@ struct QuizQuestion {
     pub correct_answer: String,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 struct Quiz {
     pub questions: Vec<QuizQuestion>,
 }
@@ -39,12 +39,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .try_init();
     // Create client (env handled by FlexibleClient)
     let client = FlexibleClient::deepseek();
-    let resolver = QueryResolver::new(client, RetryConfig::default());
+    let resolver = QueryResolverV2::new(client, RetryConfig::default());
     
     // Get 10 science quiz questions
-    let quiz: Quiz = resolver.query_with_schema(
+    let result = resolver.query::<Quiz>(
         "Create 1 high school science quiz questions with A, B, C, D answers".to_string()
     ).await?;
+    
+    let quiz = result.first().ok_or("No quiz data found in response")?.clone();
     
     // Administer the quiz
     administer_quiz(quiz.questions).await;

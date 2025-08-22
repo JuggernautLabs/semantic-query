@@ -170,7 +170,7 @@ This covers the main landscape. The ecosystem is quite mature now, with tokio be
     println!("\n{}\n", "=".repeat(60));
 
     println!("🔍 V2 Resolver (query_extract_all with schema):");
-    match v2_resolver.query_extract_all::<Analysis>("Analyze the Rust async ecosystem".to_string()).await {
+    match v2_resolver.query::<Analysis>("Analyze the Rust async ecosystem".to_string()).await {
         Ok(result) => {
             println!("✅ Extracted {} structured analyses:", result.data_count());
             for analysis in result.data_only() {
