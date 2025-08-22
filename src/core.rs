@@ -1,25 +1,21 @@
 //! Core querying API: wraps a low-level model client with resilient JSON extraction,
 //! schema-aware prompting, and streaming responses.
 //!
-//! # Deprecation Notice
-//! The V1 QueryResolver methods (`query_deserialized`, `query_with_schema`) are deprecated.
-//! Use `QueryResolverV2` from the `resolver_v2` module for better mixed content handling.
-//!
 //! Quick start:
-//! - **Recommended**: Use `QueryResolverV2::query_extract_first<T>()` for single items
-//! - **Recommended**: Use `QueryResolverV2::query_extract_all<T>()` for multiple items
-//! - **Recommended**: Use `QueryResolverV2::query_mixed<T>()` for mixed content with context
-//! - `query_stream<T, R: AsyncRead>`: emits `StreamItem<T>` as the stream arrives.
+//! - **Recommended**: Use `QueryResolver::query<T>()` for schema-guided queries with mixed content
+//! - **Advanced**: Use `QueryResolver::query_mixed<T>()` for raw mixed content without schema  
+//! - **Streaming**: Use `QueryResolver::stream_query<T>()` for real-time token streaming
+//! - **Legacy methods** (`query_deserialized`, `query_with_schema`) are deprecated stubs
 
 use crate::error::{QueryResolverError, AIError};
-use crate::json_utils;
-use crate::streaming::StreamItem;
+use crate::streaming::{StreamItem, TextContent, build_parsed_stream};
+use std::fmt;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::pin::Pin;
 use async_trait::async_trait;
-use tracing::{info, warn, error, debug, instrument};
+use tracing::{info, warn, debug, instrument};
 use schemars::{JsonSchema, schema_for};
 use futures_core::Stream;
 use bytes::Bytes;
@@ -29,6 +25,107 @@ pub type RawByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, AIError>> + Sen
 
 /// Type alias for parsed streaming results
 pub type ParsedStreamResult<T> = Result<Pin<Box<dyn Stream<Item = Result<StreamItem<T>, QueryResolverError>> + Send>>, QueryResolverError>;
+
+/// A single item in an LLM response - either structured data or explanatory text
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResponseItem<T> {
+    /// Structured data that was successfully parsed from JSON
+    /// Contains both the parsed data and the original JSON string
+    Data { 
+        /// The parsed structured data
+        data: T, 
+        /// The original JSON string that was parsed
+        original_text: String 
+    },
+    /// Explanatory text content from the LLM
+    Text(TextContent),
+}
+
+/// Complete LLM response with mixed content (text + structured data)
+#[derive(Debug, Clone)]
+pub struct ParsedResponse<T> {
+    /// All items in order (text and data)
+    pub items: Vec<ResponseItem<T>>,
+}
+
+impl<T: JsonSchema + serde::Serialize + Clone> ParsedResponse<T> {
+    /// Get only the structured data items
+    pub fn data_only(&self) -> Vec<&T> {
+        self.items.iter().filter_map(|item| match item {
+            ResponseItem::Data { data, .. } => Some(data),
+            ResponseItem::Text(_) => None,
+        }).collect()
+    }
+    
+    /// Get the complete text content (includes text around parsed JSON)
+    pub fn text_content(&self) -> String {
+        let mut result = String::new();
+        for item in &self.items {
+            match item {
+                ResponseItem::Text(text) => {
+                    if !result.is_empty() { result.push(' '); }
+                    result.push_str(&text.text);
+                }
+                ResponseItem::Data { original_text, .. } => {
+                    if !result.is_empty() { result.push(' '); }
+                    result.push_str(original_text);
+                }
+            }
+        }
+        result
+    }
+    
+    /// Get the first data item if any exists
+    pub fn first_data(&self) -> Option<&T> {
+        self.data_only().into_iter().next()
+    }
+    
+    /// Get the first data item if any exists (convenience method)
+    pub fn first(&self) -> Option<&T> {
+        self.first_data()
+    }
+    
+    /// Check if any data was extracted
+    pub fn has_data(&self) -> bool {
+        self.data_only().len() > 0
+    }
+    
+    /// Get count of data items found
+    pub fn data_count(&self) -> usize {
+        self.data_only().len()
+    }
+    
+    /// Convert StreamItems to ResponseItems
+    fn from_stream_items(stream_items: Vec<StreamItem<T>>) -> Self {
+        let items = stream_items.into_iter().filter_map(|item| match item {
+            StreamItem::Data(data) => {
+                // Fallback: re-serialize the data since we don't have original text
+                let original_text = serde_json::to_string(&data)
+                    .unwrap_or_else(|_| "[serialization failed]".to_string());
+                Some(ResponseItem::Data { data, original_text })
+            },
+            StreamItem::Text(text) => Some(ResponseItem::Text(text)),
+            StreamItem::Token(_) => None, // Tokens not relevant for non-streaming
+        }).collect();
+        
+        Self { items }
+    }
+}
+
+impl<T: fmt::Display> fmt::Display for ParsedResponse<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (i, item) in self.items.iter().enumerate() {
+            if i > 0 { writeln!(f)?; }
+            match item {
+                ResponseItem::Text(text) => write!(f, "[Text] {}", text.text)?,
+                ResponseItem::Data { data, original_text } => {
+                    write!(f, "[Data] {} (original: {})", data, original_text)?
+                },
+            }
+        }
+        Ok(())
+    }
+}
 
 /// Low-level model client abstraction.
 ///
@@ -106,7 +203,7 @@ pub struct QueryResolver<C: LowLevelClient> {
 
 impl<C: LowLevelClient> QueryResolver<C> {
     pub fn new(client: C, config: RetryConfig) -> Self {
-        info!(default_max_retries = config.default_max_retries, "Creating new QueryResolver with retry config");
+        info!(default_max_retries = config.default_max_retries, "Creating new QueryResolver");
         Self { client, config }
     }
     
@@ -125,131 +222,112 @@ impl<C: LowLevelClient> QueryResolver<C> {
         self.config = config;
         self
     }
-    
-    /// Return a deserialized value `T` using retry + stream-based JSON extraction.
-    ///
-    /// Usage:
-    /// - For free-form prompts where the model emits JSON somewhere in the text.
-    /// - Prefer `query_with_schema` when you can provide a schema for `T`.
+
+    /// Query expecting mixed content (text + structured data)
     /// 
-    /// # Deprecated
-    /// This method is deprecated. Use `QueryResolverV2::query_extract_first()` for better
-    /// mixed content handling and error reporting. See `resolver_v2` module for migration.
-    #[deprecated(since = "0.2.0", note = "Use QueryResolverV2::query_extract_first() instead")]
+    /// This is the main API - it returns exactly what LLMs actually produce:
+    /// a mix of explanatory text and structured data, preserving order and context.
     #[instrument(target = "semantic_query::resolver", skip(self, prompt), fields(prompt_len = prompt.len()))]
-    pub async fn query_deserialized<T>(&self, prompt: String) -> Result<T, QueryResolverError>
+    pub async fn query_mixed<T>(&self, prompt: String) -> Result<ParsedResponse<T>, QueryResolverError>
     where
-        T: DeserializeOwned + Send,
+        T: DeserializeOwned + JsonSchema + Send + Debug + serde::Serialize + Clone,
+    {
+        info!(prompt_len = prompt.len(), "Starting mixed content query");
+        
+        let raw_response = self.client.ask_raw(prompt).await?;
+        let stream_items = build_parsed_stream::<T>(&raw_response);
+        let response = ParsedResponse::from_stream_items(stream_items);
+        
+        info!(data_count = response.data_count(), text_length = response.text_content().len(), 
+              "Mixed content query completed");
+              
+        Ok(response)
+    }
+    
+    /// Query with automatic JSON Schema guidance - the main recommended method
+    /// 
+    /// Automatically adds schema guidance and returns mixed content with context preserved.
+    #[instrument(target = "semantic_query::resolver", skip(self, prompt), fields(prompt_len = prompt.len()))]
+    pub async fn query<T>(&self, prompt: String) -> Result<ParsedResponse<T>, QueryResolverError>
+    where
+        T: DeserializeOwned + JsonSchema + Send + Debug + serde::Serialize + Clone,
     {
         info!(prompt_len = prompt.len(), "Starting query");
-        // Simplified implementation for deprecated method - no retry logic
-        match self.client.ask_raw(prompt).await {
-            Ok(raw) => {
-                debug!(response_len = raw.len(), "Received API response");
-                let items: Vec<crate::json_utils::ParsedOrUnknown<T>> = json_utils::deserialize_stream_map::<T>(&raw);
-                if let Some(parsed) = items.into_iter().find_map(|it| match it { 
-                    json_utils::ParsedOrUnknown::Parsed(v) => Some(v), 
-                    _ => None 
-                }) {
-                    info!("Successfully parsed structured item from stream");
-                    Ok(parsed)
-                } else {
-                    error!("No matching JSON structure found in stream");
-                    Err(QueryResolverError::JsonDeserialization(
-                        serde_json::Error::io(std::io::Error::new(std::io::ErrorKind::Other, "No matching JSON structure found in stream")),
-                        raw,
-                    ))
-                }
-            }
-            Err(ai_error) => {
-                error!(error = %ai_error, "API call failed");
-                Err(QueryResolverError::Ai(ai_error))
-            }
-        }
+        
+        let schema_prompt = self.add_schema_guidance::<T>(prompt);
+        self.query_mixed(schema_prompt).await
     }
     
-    /// Return a deserialized value `T` with automatic JSON Schema guidance.
-    ///
-    /// Appends the JSON Schema for `T` to the prompt and guides the model to
-    /// include a valid JSON value somewhere in the response (our parser can
-    /// extract JSON from interleaved text or streamed output).
-    /// 
-    /// # Deprecated
-    /// This method is deprecated. Use `QueryResolverV2::query_extract_first()` for better
-    /// mixed content handling that preserves context. For compatibility, use
-    /// `QueryResolverV2::query_with_schema_compat()`. See `resolver_v2` module for migration.
-    #[deprecated(since = "0.2.0", note = "Use QueryResolverV2::query_extract_first() instead")]
-    #[instrument(target = "semantic_query::resolver", skip(self, prompt), fields(prompt_len = prompt.len()))]
-    pub async fn query_with_schema<T>(&self, prompt: String) -> Result<T, QueryResolverError>
-    where
-        T: DeserializeOwned + JsonSchema + Send,
-    {
-        info!(prompt_len = prompt.len(), "Starting schema-aware query");
-        let result = self.ask_with_schema(prompt).await;
-        match &result {
-            Ok(_) => info!("Schema-aware query completed successfully"),
-            Err(e) => error!(error = %e, "Schema-aware query failed"),
-        }
-        result
-    }
-    
-    /// Generate a JSON schema for the return type and append it to the prompt
-    pub fn augment_prompt_with_schema<T>(&self, prompt: String) -> String
+    /// Add JSON schema guidance to a prompt
+    fn add_schema_guidance<T>(&self, prompt: String) -> String
     where
         T: JsonSchema,
     {
         let schema = schema_for!(T);
         let schema_json = serde_json::to_string_pretty(&schema)
-            .unwrap_or_else(|_| "{}".to_string());
-        
-        debug!(schema_len = schema_json.len(), "Generated JSON schema for return type");
-        
+            .unwrap_or_else(|_| "Schema serialization failed".to_string());
+            
         format!(
-            r#"{prompt}
-Include at least one JSON value that strictly conforms to the following JSON Schema. You may include additional explanatory text before or after; the JSON must be valid and can appear anywhere in your response.
-```json
-{schema_json}
-```
-"#
+            "{}\n\n## Response Format\nPlease include valid JSON matching this schema somewhere in your response:\n```json\n{}\n```",
+            prompt, schema_json
         )
     }
-
-
-
-    /// Ask with automatic schema-aware prompt augmentation
-    #[instrument(skip(self, prompt), fields(prompt_len = prompt.len()))]
-    async fn ask_with_schema<T>(&self, prompt: String) -> Result<T, QueryResolverError>
+    
+    // =============================================================================
+    // DEPRECATED METHODS - Stubs only, use query() and query_mixed() instead
+    // =============================================================================
+    
+    /// Return a deserialized value `T` using retry + stream-based JSON extraction.
+    ///
+    /// # Deprecated
+    /// This method is deprecated and returns a stub error. 
+    /// Use `query<T>().first()` for similar functionality with better mixed content handling.
+    #[deprecated(since = "0.2.0", note = "Use query<T>().first() instead")]
+    pub async fn query_deserialized<T>(&self, _prompt: String) -> Result<T, QueryResolverError>
+    where
+        T: DeserializeOwned + Send,
+    {
+        Err(QueryResolverError::JsonDeserialization(
+            serde_json::Error::io(std::io::Error::new(
+                std::io::ErrorKind::Other, 
+                "query_deserialized is deprecated - use query<T>().first() instead"
+            )),
+            "deprecated method called".to_string(),
+        ))
+    }
+    
+    /// Return a deserialized value `T` with automatic JSON Schema guidance.
+    ///
+    /// # Deprecated  
+    /// This method is deprecated and returns a stub error.
+    /// Use `query<T>().first()` for the same functionality with better context preservation.
+    #[deprecated(since = "0.2.0", note = "Use query<T>().first() instead")]
+    pub async fn query_with_schema<T>(&self, _prompt: String) -> Result<T, QueryResolverError>
     where
         T: DeserializeOwned + JsonSchema + Send,
     {
-        info!("Starting schema-aware query");
-        let augmented_prompt = self.augment_prompt_with_schema::<T>(prompt);
-        debug!(augmented_prompt_len = augmented_prompt.len(), "Generated schema-augmented prompt");
-        // Simplified implementation for deprecated method - no retry logic
-        match self.client.ask_raw(augmented_prompt).await {
-            Ok(raw) => {
-                debug!(response_len = raw.len(), "Received API response");
-                let items: Vec<crate::json_utils::ParsedOrUnknown<T>> = json_utils::deserialize_stream_map::<T>(&raw);
-                if let Some(parsed) = items.into_iter().find_map(|it| match it { 
-                    json_utils::ParsedOrUnknown::Parsed(v) => Some(v), 
-                    _ => None 
-                }) {
-                    info!("Successfully parsed structured item from stream");
-                    Ok(parsed)
-                } else {
-                    error!("No matching JSON structure found in stream");
-                    Err(QueryResolverError::JsonDeserialization(
-                        serde_json::Error::io(std::io::Error::new(std::io::ErrorKind::Other, "No matching JSON structure found in stream")),
-                        raw,
-                    ))
-                }
-            }
-            Err(ai_error) => {
-                error!(error = %ai_error, "API call failed");
-                Err(QueryResolverError::Ai(ai_error))
-            }
-        }
+        Err(QueryResolverError::JsonDeserialization(
+            serde_json::Error::io(std::io::Error::new(
+                std::io::ErrorKind::Other, 
+                "query_with_schema is deprecated - use query<T>().first() instead"
+            )),
+            "deprecated method called".to_string(),
+        ))
     }
+
+    /// Generate a JSON schema for the return type and append it to the prompt
+    ///
+    /// # Deprecated
+    /// This method is deprecated and returns a stub.
+    /// Schema guidance is now handled automatically by `query<T>()`.
+    #[deprecated(since = "0.2.0", note = "Schema guidance is automatic in query<T>()")]
+    pub fn augment_prompt_with_schema<T>(&self, prompt: String) -> String
+    where
+        T: JsonSchema,
+    {
+        format!("{} [DEPRECATED: use query<T>() instead]", prompt)
+    }
+
 
     /// Stream items (text + structured data) from a live model response.
     ///
@@ -292,10 +370,9 @@ Include at least one JSON value that strictly conforms to the following JSON Sch
     {
         info!(prompt_len = prompt.len(), "Starting streaming query");
         
-        // For streaming, we don't want the semantic schema - just the data schema
-        // The stream items are created by our parser, not returned by the model
-        let augmented_prompt = self.augment_prompt_with_schema::<T>(prompt);
-        debug!(prompt_len = augmented_prompt.len(), "Using raw prompt for streaming");
+        // For streaming, we add schema guidance to help the model generate proper JSON
+        let augmented_prompt = self.add_schema_guidance::<T>(prompt);
+        debug!(prompt_len = augmented_prompt.len(), "Using schema-augmented prompt for streaming");
         
         // Get streaming response
         let stream = self.client.stream_raw(augmented_prompt)

@@ -1,5 +1,5 @@
 use schemars::{schema_for, JsonSchema};
-use semantic_query::{core::{QueryResolver, RetryConfig}, QueryResolverV2};
+use semantic_query::core::{QueryResolver, RetryConfig};
 use serde::Serialize;
 use serde_json::Value;
 use serde::de::DeserializeOwned;

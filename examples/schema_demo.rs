@@ -1,4 +1,4 @@
-use semantic_query::{clients::MockClient, core::RetryConfig, QueryResolverV2};
+use semantic_query::{clients::MockClient, core::{QueryResolver, RetryConfig}};
 use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 
@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .try_init();
     
     let(client, handle) = MockClient::new();
-    let resolver = QueryResolverV2::new(client, RetryConfig::default());
+    let resolver = QueryResolver::new(client, RetryConfig::default());
     // Add realistic analysis response with mixed content
     handle.add_response(semantic_query::clients::MockResponse::Success(r#"
 I'll analyze this code for security vulnerabilities. Let me examine it systematically.
@@ -165,7 +165,7 @@ Overall, this is solid Rust code with room for minor improvements.
     }
     
     println!("\n=== V2 Benefits ===");
-    println!("• QueryResolverV2 automatically includes JSON schema in prompts");
+    println!("• QueryResolver automatically includes JSON schema in prompts");
     println!("• Preserves both structured data and explanatory text");
     println!("• Handles multiple data items in responses");
     println!("• Better error reporting with context");

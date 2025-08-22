@@ -3,9 +3,9 @@
 //! This example shows how V2 handles mixed content (text + structured data) 
 //! more gracefully than V1, which assumes the entire response is parseable as T.
 
-use semantic_query::clients::flexible::{FlexibleClient, ClientType};
+use semantic_query::clients::mock::MockClient;
 use semantic_query::core::{QueryResolver, RetryConfig};
-use semantic_query::resolver_v2::{QueryResolverV2, ResponseItem};
+use semantic_query::ResponseItem;
 use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 
@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .try_init();
 
     // Use mock client for predictable demo output
-    let (client, handle) = semantic_query::clients::mock::MockClient::new();
+    let (client, handle) = MockClient::new();
     
     // Set up a realistic mixed-content response
     handle.add_response(semantic_query::clients::MockResponse::Success(r#"
@@ -118,31 +118,28 @@ Additionally, I should mention that there are alternative runtimes worth conside
 This covers the main landscape. The ecosystem is quite mature now, with tokio being the most widely adopted solution for most use cases.
 "#.trim().to_string()));
 
-    println!("=== QueryResolver V1 vs V2 Comparison ===\n");
+    println!("=== QueryResolver Legacy vs New API Comparison ===\n");
 
-    // V1 Resolver (original behavior)
-    let v1_resolver = QueryResolver::new(client.clone(), RetryConfig::default());
+    // Legacy methods (now deprecated stubs)
+    let resolver = QueryResolver::new(client.clone(), RetryConfig::default());
     
-    println!("🔍 V1 Resolver (query_with_schema):");
-    match v1_resolver.query_with_schema::<Analysis>("Analyze the Rust async ecosystem".to_string()).await {
+    println!("🔍 Legacy method (query_with_schema) - now deprecated:");
+    match resolver.query_with_schema::<Analysis>("Analyze the Rust async ecosystem".to_string()).await {
         Ok(analysis) => {
-            println!("✅ Got first analysis: {}", analysis.topic);
-            println!("   Key points: {:?}", analysis.key_points);
-            println!("   ❌ Lost: All the explanatory text and the second analysis!");
+            println!("✅ Got analysis: {}", analysis.topic);
         }
         Err(e) => {
-            println!("❌ V1 failed: {}", e);
-            println!("   (This would happen if JSON wasn't at the start of the response)");
+            println!("❌ Legacy method failed (expected - it's now a stub): {}", e);
+            println!("   This demonstrates that old methods are deprecated stubs");
         }
     }
 
     println!("\n{}\n", "=".repeat(60));
 
-    // V2 Resolver (new behavior) - use same client to share mock responses
-    let v2_resolver = QueryResolverV2::new(client.clone(), RetryConfig::default());
+    // New unified QueryResolver with mixed content support
     
-    println!("🔍 V2 Resolver (query_mixed):");
-    match v2_resolver.query_mixed::<Analysis>("Analyze the Rust async ecosystem".to_string()).await {
+    println!("🔍 New QueryResolver (query_mixed):");
+    match resolver.query_mixed::<Analysis>("Analyze the Rust async ecosystem".to_string()).await {
         Ok(result) => {
             let data = result.data_only();
             println!("✅ Found {} analyses in mixed content:", data.len());
@@ -169,8 +166,8 @@ This covers the main landscape. The ecosystem is quite mature now, with tokio be
 
     println!("\n{}\n", "=".repeat(60));
 
-    println!("🔍 V2 Resolver (query_extract_all with schema):");
-    match v2_resolver.query::<Analysis>("Analyze the Rust async ecosystem".to_string()).await {
+    println!("🔍 New QueryResolver (query with schema):");
+    match resolver.query::<Analysis>("Analyze the Rust async ecosystem".to_string()).await {
         Ok(result) => {
             println!("✅ Extracted {} structured analyses:", result.data_count());
             for analysis in result.data_only() {
@@ -178,15 +175,15 @@ This covers the main landscape. The ecosystem is quite mature now, with tokio be
             }
             println!("✅ Preserved context: {} chars of explanatory text", result.text_content().len());
         }
-        Err(e) => println!("❌ V2 extract_all failed: {}", e),
+        Err(e) => println!("❌ New query failed: {}", e),
     }
 
-    println!("\n🎯 Key V2 Advantages:");
+    println!("\n🎯 New QueryResolver Advantages:");
     println!("   • Preserves ALL content (text + data) in order");
     println!("   • Extracts MULTIPLE structured items, not just the first");
     println!("   • Provides context for better error reporting");
     println!("   • More honest about what LLMs actually return");
-    println!("   • Backward compatible via query_with_schema_compat()");
+    println!("   • Legacy methods are deprecated stubs - clean migration path");
 
     Ok(())
 }

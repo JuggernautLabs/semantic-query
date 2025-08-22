@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use semantic_query::{core::{LowLevelClient, RetryConfig}, clients::flexible::FlexibleClient, QueryResolverV2};
+use semantic_query::{core::{LowLevelClient, QueryResolver, RetryConfig}, clients::flexible::FlexibleClient};
 use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 
@@ -36,9 +36,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _boxed_client = cloned_mock.clone_box();
     println!("   ✅ Extracted boxed client from FlexibleClient");
     
-    // Use with QueryResolverV2
-    println!("\n4. Using with QueryResolverV2:");
-    let resolver = QueryResolverV2::new(mock_client, RetryConfig::default());
+    // Use with QueryResolver
+    println!("\n4. Using with QueryResolver:");
+    let resolver = QueryResolver::new(mock_client, RetryConfig::default());
     
     // Try a simple query (will return empty {} from mock)
     match resolver.query::<SimpleResponse>("Hello world".to_string()).await {
@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("    - Easy construction with FlexibleClient::mock(), ::claude(), ::deepseek()");
     println!("    - Seamless cloning with .clone()");
     println!("    - Extract boxed clients with .clone_inner() or .into_inner()");
-    println!("    - Works directly with QueryResolverV2");
+    println!("    - Works directly with QueryResolver");
     
     Ok(())
 }

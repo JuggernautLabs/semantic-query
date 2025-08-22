@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 use semantic_query::clients::flexible::FlexibleClient;
-use semantic_query::{core::RetryConfig, QueryResolverV2};
+use semantic_query::{core::{QueryResolver, RetryConfig}};
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 struct QuizQuestion {
@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .try_init();
     // Create client (env handled by FlexibleClient)
     let client = FlexibleClient::deepseek();
-    let resolver = QueryResolverV2::new(client, RetryConfig::default());
+    let resolver = QueryResolver::new(client, RetryConfig::default());
     
     // Get 10 science quiz questions
     let result = resolver.query::<Quiz>(
@@ -47,6 +47,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ).await?;
     
     let quiz = result.first().ok_or("No quiz data found in response")?.clone();
+    
+    // Show mixed content capabilities of V2
+    println!("🎯 Generated Quiz with Mixed Content:");
+    println!("   Questions found: {}", quiz.questions.len());
+    println!("   Total response length: {} characters", result.text_content().len());
+    println!("   Data items: {}", result.data_count());
+    if result.text_content().len() > 300 {
+        println!("   Context preview: {}...", result.text_content().chars().take(200).collect::<String>());
+    } else {
+        println!("   Full context: {}", result.text_content());
+    }
     
     // Administer the quiz
     administer_quiz(quiz.questions).await;
