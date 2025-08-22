@@ -1,6 +1,6 @@
 # Semantic Query
 
-Stream-first, schema-aware AI querying. Preserve interleaved text + structured data, parse JSON reliably from messy or streamed outputs, and render in real time.
+Stream-first, schema-aware AI querying. Extract structured data from LLM responses while preserving explanatory text, with automatic JSON Schema guidance and real-time streaming support.
 
 ## Quick Example
 run using 
@@ -10,9 +10,11 @@ cargo run --example readme_demo
 This demo shows how you can build a quiz engine!
 ```rust
 
-use serde::{Deserialize};
+use serde::Deserialize;
 use schemars::JsonSchema;
-use semantic_query::{core::{QueryResolver, RetryConfig}, clients::flexible::FlexibleClient};
+use semantic_query::core::{QueryResolver, RetryConfig};
+use semantic_query::clients::flexible::FlexibleClient;
+use anyhow::Result;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct QuizQuestion {
@@ -39,15 +41,18 @@ struct Quiz {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> {
     // Create Claude client (reads ANTHROPIC_API_KEY from environment)
     let client = FlexibleClient::claude();
     let resolver = QueryResolver::new(client, RetryConfig::default());
     
-    // Get 10 science quiz questions
-    let quiz: Quiz = resolver.query_with_schema(
+    // Get 10 science quiz questions (schema guidance is automatic)
+    let response = resolver.query::<Quiz>(
         "Create 10 high school science quiz questions with A, B, C, D answers".to_string()
     ).await?;
+    
+    // Extract the quiz data (new API returns ParsedResponse with mixed content)
+    let quiz = response.first_required()?;
     
     // Administer the quiz
     administer_quiz(quiz.questions).await;
@@ -80,6 +85,53 @@ async fn administer_quiz(questions: Vec<QuizQuestion>) {
 ```
 
 **Setup**: Add `ANTHROPIC_API_KEY=your_key_here` to `.env` file.
+
+## Modern API: Mixed Content Support
+
+The new API recognizes that LLMs naturally produce mixed content - explanatory text alongside structured data. Instead of forcing everything to be JSON, we preserve both:
+
+```rust
+// Query with automatic schema guidance
+let response = resolver.query::<Analysis>("Analyze this code for issues").await?;
+
+// Access different parts of the response
+let all_analyses = response.data_only();        // Vec<&Analysis> - all structured data
+let full_text = response.text_content();        // String - complete text including JSON
+let first = response.first_required()?;         // Analysis - first item or error
+
+// Iterate through mixed content preserving order
+for item in &response.items {
+    match item {
+        ResponseItem::Text(text) => println!("Explanation: {}", text.text),
+        ResponseItem::Data { data, original_text } => {
+            println!("Found issue: {}", data.issue);
+            println!("Original JSON: {}", original_text);
+        }
+    }
+}
+```
+
+### Real-Time Streaming
+
+Stream responses token-by-token while automatically extracting structured data:
+
+```rust
+use futures_util::StreamExt;
+use semantic_query::streaming::StreamItem;
+
+let mut stream = resolver.stream_query::<ToolCall>("Help me debug this").await?;
+while let Some(item) = stream.next().await {
+    match item? {
+        StreamItem::Token(tok) => print!("{}", tok),  // Real-time text
+        StreamItem::Text(text) => {                    // Completed text chunk
+            println!("\n[Assistant] {}", text.text);
+        }
+        StreamItem::Data(tool) => {                    // Structured data found
+            println!("\n[Tool Call] {}: {:?}", tool.name, tool.args);
+        }
+    }
+}
+```
 
 ## Providers & Setup
 
@@ -122,16 +174,18 @@ Examples:
 Then run any example or test normally and logs will appear.
 
 Examples:
-- Non-interactive stream parser demo:
-  - `cargo run --example semantic_stream_demo`
-- DeepSeek agent streaming (requires `DEEPSEEK_API_KEY`):
-  - `cargo run --example deepseek_agent_stream_demo`
-- JSON structure coords demo:
+- Main demo with quiz generation:
+  - `cargo run --example readme_demo`
+- Streaming demo with real-time output:
+  - `cargo run --example readme_demo_streaming`
+- Mixed content demo showing V2 improvements:
+  - `cargo run --example resolver_v2_demo`
+- JSON structure coordinates demo:
   - `cargo run --example json_stream_coords_demo`
-- Stream parser stress (chunk boundaries):
-  - `cargo run --example stream_parser_stress`
-- Bedrock streaming (Claude, feature-gated):
-  - `cargo run --example bedrock_stream_demo --features aws-bedrock-sdk,bedrock,anthropic`
+- Schema validation demo:
+  - `cargo run --example schema_demo`
+- Benchmark tool (tests all providers):
+  - `cargo run --bin benchmark`
 
 DeepSeek live tests (ignored by default; requires network + key):
 ```
@@ -230,16 +284,26 @@ Please provide a response matching this schema
 
 This schema ensures the AI understands exactly what each field represents and enforces the constraint that `correct_answer` must be exactly A, B, C, or D.
 
-## Stream-First Parsing
+## Core Features
 
-- Structural scanner: Finds balanced JSON objects/arrays in any text, with byte indices and nested children. Works on full strings and incrementally over chunks.
-- StreamItem<T>: an enum preserving order and fidelity:
-  - Text(TextContent { text })
-  - Data(T)
-- Query APIs:
-  - `query_with_schema<T>`: appends JSON Schema for T to the prompt.
-  - `query_semantic<T>`: returns `Vec<StreamItem<T>>` from a one-shot response.
-  - `query_semantic_stream<T, R: AsyncRead>`: emits `StreamItem<T>` as stream arrives.
+### Stream-First JSON Parsing
+
+- **Structural scanner**: Finds balanced JSON objects/arrays in any text, with byte indices and nested children. Works on full strings and incrementally over chunks.
+- **Mixed content preservation**: LLM responses often mix explanatory text with JSON - we preserve both in order
+- **Robust extraction**: Handles malformed JSON, partial objects, and nested structures
+
+### Type-Safe APIs
+
+- **`query<T>`**: Main API - automatically adds JSON Schema guidance and returns `ParsedResponse<T>`
+- **`query_mixed<T>`**: Raw mixed content without schema guidance  
+- **`stream_query<T>`**: Real-time streaming with automatic JSON extraction
+- **`first_required()`**: Clean error handling for single-item extraction
+
+### Response Types
+
+- **`ParsedResponse<T>`**: Contains ordered items (text + data) from the response
+- **`ResponseItem<T>`**: Either `Text(content)` or `Data { data: T, original_text }`
+- **`StreamItem<T>`**: Streaming variant with `Token`, `Text`, and `Data`
 
 ### Streaming Providers
 
@@ -248,24 +312,27 @@ This schema ensures the AI understands exactly what each field represents and en
 - DeepSeek: streaming enabled.
 - ChatGPT (OpenAI/Azure): streaming enabled.
 
-## Streaming Aggregator (SSE)
+## Migration from Legacy API
 
-Use `streaming::stream_sse_aggregated` to render in real time while also chunking text and extracting structured items.
+The old single-item APIs are deprecated. Here's how to migrate:
 
 ```rust
-use semantic_query::streaming::{AggregatedEvent, stream_sse_aggregated};
-use futures_util::{StreamExt, pin_mut};
+// Old API (deprecated)
+let result: T = resolver.query_with_schema::<T>(prompt).await?;
 
-// reader: AsyncRead from any streaming client (e.g., FlexibleClient::stream_raw_reader)
-let evs = stream_sse_aggregated::<_, ToolCall>(reader, 8 * 1024);
-pin_mut!(evs);
-while let Some(ev) = evs.next().await {
-    match ev {
-        AggregatedEvent::Token(tok) => print!("{}", tok),         // live typing
-        AggregatedEvent::TextChunk(s) => println!("\n[agent] {}", s),
-        AggregatedEvent::Data(tc) => println!("\n[toolcall] {}", tc.name),
-    }
+// New API - Option 1: Simple migration with first_required()
+let result: T = resolver.query::<T>(prompt).await?.first_required()?;
+
+// New API - Option 2: Handle multiple results
+let response = resolver.query::<T>(prompt).await?;
+for item in response.data_only() {
+    process_item(item);
 }
+
+// New API - Option 3: Access mixed content
+let response = resolver.query::<T>(prompt).await?;
+println!("Full explanation: {}", response.text_content());
+println!("Found {} data items", response.data_count());
 ```
 
 ## Tests
