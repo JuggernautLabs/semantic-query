@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use semantic_query::clients::flexible::{FlexibleClient, ClientType};
 use semantic_query::core::{QueryResolver, RetryConfig};
-use semantic_query::streaming::{AggregatedEvent, stream_sse_aggregated};
+use semantic_query::streaming::StreamItem;
 use futures_util::{StreamExt, pin_mut};
 
 /// A minimal, flexible tool call representation.
@@ -64,9 +64,8 @@ Approach: Think step-by-step, chat your thoughts, and propose tool calls.
         task = task
     );
 
-    // Stream SSE via reusable aggregator
-    let reader = resolver.client().stream_raw_reader(prompt);
-    let evs = stream_sse_aggregated::<_, ToolCall>(reader, 8 * 1024);
+    // Use the high-level streaming API
+    let evs = resolver.stream_query::<ToolCall>(prompt).await?;
     pin_mut!(evs);
 
     println!("=== DeepSeek Agent Demo (IRC-style, streaming) ===");
@@ -81,14 +80,14 @@ Approach: Think step-by-step, chat your thoughts, and propose tool calls.
     let mut json_lines_pending: usize = 0;  // lines to clear when Data(ToolCall) arrives
     while let Some(ev) = evs.next().await {
         match ev {
-            AggregatedEvent::Token(tok) => {
+            Ok(StreamItem::Token(tok)) => {
                 // Normalize whitespace in live token stream:
                 // - drop pure whitespace tokens except at most a single newline
                 // - collapse consecutive newlines
                 let t = tok.replace("\r\n", "\n");
                 if t.chars().all(|c| c.is_whitespace()) {
                     if t.contains('\n') && !last_was_newline {
-                        print!("\n");
+                        println!();
                         let _ = std::io::Write::flush(&mut std::io::stdout());
                         last_was_newline = true;
                         printed_live = true;
@@ -133,18 +132,19 @@ Approach: Think step-by-step, chat your thoughts, and propose tool calls.
                     json_lines_current = 0;
                 }
             }
-            AggregatedEvent::TextChunk(chunk) => {
+            Ok(StreamItem::Text(text)) => {
+                let chunk = text.text;
                 let clean = chunk.trim();
                 if clean.is_empty() { printed_live = false; continue; }
                 // If we already streamed these tokens, skip re-printing the aggregated text
                 if printed_live { printed_live = false; continue; }
                 // strip common chat prefixes like "< " if present
                 let clean = clean.trim_start_matches("< ");
-                if !last_was_newline { println!(""); }
+                if !last_was_newline { println!(); }
                 println!("[agent] {}", clean);
                 last_was_newline = false;
             }
-            AggregatedEvent::Data(tc) => {
+            Ok(StreamItem::Data(tc)) => {
                 if printed_live { printed_live = false; }
                 // If we have pending JSON lines that were printed raw, erase them now
                 if json_lines_pending > 0 {
@@ -154,11 +154,15 @@ Approach: Think step-by-step, chat your thoughts, and propose tool calls.
                     json_lines_pending = 0;
                 }
                 tool_calls += 1;
-                if !last_was_newline { println!(""); }
+                if !last_was_newline { println!(); }
                 // Colorize tool calls for readability
                 println!("{}[toolcall {}] name={}{}", COLOR_TOOL, tool_calls, tc.name, COLOR_RESET);
                 println!("{}{}{}", COLOR_TOOL, pretty_json(&tc.args), COLOR_RESET);
                 last_was_newline = false;
+            }
+            Err(e) => {
+                eprintln!("\nStream error: {}", e);
+                break;
             }
         }
     }

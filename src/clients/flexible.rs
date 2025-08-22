@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use tokio_util::io::StreamReader;
 use tokio::io::AsyncRead;
 use std::pin::Pin;
+use std::str::FromStr;
 
 
 /// Client type for lazy initialization
@@ -76,11 +77,10 @@ impl Default for ClientType {
         }
     }
 }
-impl ClientType {
-    /// Parse client type from string (case insensitive)
-    /// # Errors
-    /// Returns `Err(String)` if the string does not match a known client type.
-    pub fn from_str(s: &str) -> Result<Self, String> {
+impl FromStr for ClientType {
+    type Err = String;
+    
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "claude" => Ok(Self::Claude),
             "deepseek" => Ok(Self::DeepSeek),
@@ -89,6 +89,9 @@ impl ClientType {
             _ => Err(format!("Unknown client type: '{s}'. Supported: claude, deepseek, mock"))
         }
     }
+}
+
+impl ClientType {
     
     /// Create a mock variant that returns both the client type and a handle
     #[must_use]

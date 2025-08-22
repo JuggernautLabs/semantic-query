@@ -15,7 +15,7 @@ fn sse_payload(token: &str) -> String {
     let payload = json!({
         "choices": [ { "delta": { "content": token } } ]
     });
-    format!("data: {}", payload.to_string())
+    format!("data: {}", payload)
 }
 
 fn run_aggregator(lines: Vec<String>) -> Vec<Event> {
@@ -119,7 +119,7 @@ fn aggregator_detects_multiple_calls_and_text() {
     let events = run_aggregator(lines);
 
     // Expect: Text("Intro paragraph about tokio."), Call(fetch_docs), Text("Checking crates.io stats."), Call(fetch_repo), Text("Note: \"text with { braces } inside\" should be fine.")
-    assert!(matches!(events.get(0), Some(Event::Text(s)) if s == "Intro paragraph about tokio."));
+    assert!(matches!(events.first(), Some(Event::Text(s)) if s == "Intro paragraph about tokio."));
     assert!(matches!(events.get(1), Some(Event::Call(tc)) if tc.name == "fetch_docs" && tc.args["q"] == "tokio runtime"));
     assert!(matches!(events.get(2), Some(Event::Text(s)) if s == "Checking crates.io stats."));
     assert!(matches!(events.get(3), Some(Event::Call(tc)) if tc.name == "fetch_repo" && tc.args["owner"] == "tokio-rs" && tc.args["repo"] == "tokio" && tc.args["filters"][0] == "open_issues"));

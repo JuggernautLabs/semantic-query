@@ -1,4 +1,4 @@
-//! Streaming SemanticItem<T> demo using QueryResolver::query_semantic_stream.
+//! Streaming StreamItem<T> demo using QueryResolver::query_semantic_stream.
 //!
 //! This example simulates a model stream using `tokio::io::duplex` and feeds it into
 //! the resolver-level streaming API. It demonstrates how to interleave Text and Data(T)
@@ -9,7 +9,7 @@ use futures_util::{pin_mut, StreamExt}; // for pin_mut + .next()
 use schemars::JsonSchema;
 use serde::Deserialize;
 use semantic_query::core::{QueryResolver, RetryConfig};
-use semantic_query::semantic::SemanticItem;
+use semantic_query::streaming::StreamItem;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct Finding {
@@ -38,14 +38,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // but we construct one to mirror real usage.
     let resolver = QueryResolver::new(semantic_query::clients::mock::MockVoid, RetryConfig::default());
 
-    // Stream SemanticItem<Finding> as data is discovered
-    let stream = resolver.query_semantic_stream::<Finding, _>(rx, 1024);
+    // Stream StreamItem<Finding> as data is discovered
+    let stream = resolver.query_stream::<Finding, _>(rx, 1024);
     pin_mut!(stream);
-    println!("=== Streaming SemanticItem<Finding> ===");
+    println!("=== Streaming StreamItem<Finding> ===");
     while let Some(item) = stream.next().await {
         match item {
-            SemanticItem::Text(t) => println!("text: {}", t.text),
-            SemanticItem::Data(d) => {
+            StreamItem::Text(t) => println!("text: {}", t.text),
+            StreamItem::Data(d) => {
                 println!("data: {}", d.message);
                 // Hook: trigger a toolcall here based on `d`
             }

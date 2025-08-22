@@ -233,13 +233,13 @@ This schema ensures the AI understands exactly what each field represents and en
 ## Stream-First Parsing
 
 - Structural scanner: Finds balanced JSON objects/arrays in any text, with byte indices and nested children. Works on full strings and incrementally over chunks.
-- SemanticItem<T>: an enum preserving order and fidelity:
+- StreamItem<T>: an enum preserving order and fidelity:
   - Text(TextContent { text })
   - Data(T)
 - Query APIs:
   - `query_with_schema<T>`: appends JSON Schema for T to the prompt.
-  - `query_semantic<T>`: returns `Vec<SemanticItem<T>>` from a one-shot response.
-  - `query_semantic_stream<T, R: AsyncRead>`: emits `SemanticItem<T>` as stream arrives.
+  - `query_semantic<T>`: returns `Vec<StreamItem<T>>` from a one-shot response.
+  - `query_semantic_stream<T, R: AsyncRead>`: emits `StreamItem<T>` as stream arrives.
 
 ### Streaming Providers
 

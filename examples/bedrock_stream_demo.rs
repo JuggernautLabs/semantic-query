@@ -10,7 +10,7 @@ use semantic_query::clients::claude::{ClaudeConfig, ClaudeModel};
 #[cfg(all(feature = "aws-bedrock-sdk", feature = "bedrock", feature = "anthropic"))]
 use semantic_query::core::{QueryResolver, RetryConfig};
 #[cfg(all(feature = "aws-bedrock-sdk", feature = "bedrock", feature = "anthropic"))]
-use semantic_query::semantic::{SemanticItem, TextContent};
+use semantic_query::semantic::{StreamItem, TextContent};
 #[cfg(all(feature = "aws-bedrock-sdk", feature = "bedrock", feature = "anthropic"))]
 use futures_util::{StreamExt, pin_mut};
 #[cfg(all(feature = "aws-bedrock-sdk", feature = "bedrock", feature = "anthropic"))]
@@ -53,11 +53,11 @@ You are an assistant that chats and emits tool calls when needed.
     let mut n = 0usize;
     while let Some(item) = stream.next().await {
         match item {
-            SemanticItem::Text(TextContent { text }) => {
+            StreamItem::Text(TextContent { text }) => {
                 let s = text.trim();
                 if !s.is_empty() { println!("[agent] {}", s); }
             }
-            SemanticItem::Data(tc) => {
+            StreamItem::Data(tc) => {
                 n += 1;
                 println!("[toolcall {}] {}\n{}", n, tc.name, serde_json::to_string_pretty(&tc.args).unwrap_or_default());
             }

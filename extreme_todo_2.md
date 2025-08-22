@@ -5,7 +5,7 @@ Make prompts explicit, versioned, linted, and provider-aware. Enforce use of the
 ## Goals
 
 - Replace ad-hoc string augmentation with a typed PromptSpec + renderer pipeline.
-- Use only the semantic schema (Vec<SemanticItem<T>>); remove data-only prompting paths.
+- Use only the semantic schema (Vec<StreamItem<T>>); remove data-only prompting paths.
 - Provider-specific rendering without leaking provider quirks into call sites.
 - Lint prompts for contradictions (e.g., “JSON only” vs. allow prose).
 - Snapshot prompts for reviewable diffs and reproducibility.
@@ -55,7 +55,7 @@ pub struct PromptSpec<T> {
     pub guidance: Guidance,
     pub provider_hints: ProviderHints,
     pub version: String, // e.g., "semantic_interleave_v1"
-    pub schema_json: String, // JSON Schema for Vec<SemanticItem<T>>
+    pub schema_json: String, // JSON Schema for Vec<StreamItem<T>>
     _phantom: std::marker::PhantomData<T>,
 }
 
@@ -70,7 +70,7 @@ pub trait PromptRenderer {
 
 // Query integration
 impl<C: LowLevelClient> QueryResolver<C> {
-    pub async fn stream_semantic_with_spec<T>(&self, spec: PromptSpec<T>) -> Result<Pin<Box<dyn Stream<Item = Result<SemanticItem<T>, QueryResolverError>> + Send>>, QueryResolverError>
+    pub async fn stream_semantic_with_spec<T>(&self, spec: PromptSpec<T>) -> Result<Pin<Box<dyn Stream<Item = Result<StreamItem<T>, QueryResolverError>> + Send>>, QueryResolverError>
     where T: DeserializeOwned + JsonSchema + Send + 'static {
         let messages = prompts::render_for_client(&spec, self.client());
         // call client.stream_raw with rendered prompt/messages, then parse:
@@ -84,7 +84,7 @@ impl<C: LowLevelClient> QueryResolver<C> {
 ## Lint Rules (examples)
 
 - Error: `guidance.allow_prose == true` but template text contains “JSON only”.
-- Error: `require_wrapped_semantic_items == true` but schema is not `Vec<SemanticItem<T>>`.
+- Error: `require_wrapped_semantic_items == true` but schema is not `Vec<StreamItem<T>>`.
 - Warn: `min_tool_calls.is_some()` but guidance text omits tool-call instructions.
 - Error: examples include code fences while `allow_code_fences == false`.
 

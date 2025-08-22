@@ -1,15 +1,15 @@
 //! Core querying API: wraps a low-level model client with resilient JSON extraction,
-//! schema-aware prompting, and semantic streaming.
+//! schema-aware prompting, and streaming responses.
 //!
 //! Quick start:
 //! - `query_deserialized<T>`: returns `T` from prompts where the model embeds JSON.
 //! - `query_with_schema<T>`: appends JSON Schema for `T` to improve reliability.
-//! - `query_semantic<T>`: returns `Vec<SemanticItem<T>>` preserving interleaved text + data.
-//! - `query_semantic_stream<T, R: AsyncRead>`: emits `SemanticItem<T>` as the stream arrives.
+//! - `query_parsed<T>`: returns `Vec<StreamItem<T>>` preserving interleaved text + data.
+//! - `query_stream<T, R: AsyncRead>`: emits `StreamItem<T>` as the stream arrives.
 
 use crate::error::{QueryResolverError, AIError};
 use crate::json_utils;
-use crate::semantic::SemanticItem;
+use crate::streaming::StreamItem;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -19,6 +19,12 @@ use tracing::{info, warn, error, debug, instrument};
 use schemars::{JsonSchema, schema_for};
 use futures_core::Stream;
 use bytes::Bytes;
+
+/// Type alias for raw byte streams from AI providers
+pub type RawByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, AIError>> + Send>>;
+
+/// Type alias for parsed streaming results
+pub type ParsedStreamResult<T> = Result<Pin<Box<dyn Stream<Item = Result<StreamItem<T>, QueryResolverError>> + Send>>, QueryResolverError>;
 
 /// Low-level model client abstraction.
 ///
@@ -35,7 +41,7 @@ pub trait LowLevelClient: Send + Sync + Debug{
 
     /// Optional: provide a streaming raw response as chunks of bytes.
     /// Default is None; providers can override to implement true streaming.
-    fn stream_raw(&self, _prompt: String) -> Option<Pin<Box<dyn Stream<Item = Result<Bytes, AIError>> + Send>>> { None }
+    fn stream_raw(&self, _prompt: String) -> Option<RawByteStream> { None }
 }
 
 // Implement Clone for Box<dyn LowLevelClient>
@@ -56,7 +62,7 @@ impl LowLevelClient for Box<dyn LowLevelClient> {
         self.as_ref().clone_box()
     }
 
-    fn stream_raw(&self, prompt: String) -> Option<Pin<Box<dyn Stream<Item = Result<Bytes, AIError>> + Send>>> {
+    fn stream_raw(&self, prompt: String) -> Option<RawByteStream> {
         self.as_ref().stream_raw(prompt)
     }
 }
@@ -284,7 +290,7 @@ Include at least one JSON value that strictly conforms to the following JSON Sch
         self.ask_with_retry(augmented_prompt).await
     }
 
-    /// Stream semantic items (text + structured data) from a live model response.
+    /// Stream items (text + structured data) from a live model response.
     ///
     /// This is the high-level streaming API that handles all the complexity internally:
     /// - Automatically augments prompt with schema guidance for T (JSON can appear anywhere)
@@ -296,7 +302,7 @@ Include at least one JSON value that strictly conforms to the following JSON Sch
     /// ```no_run
     /// use futures_util::StreamExt;
     /// use semantic_query::core::{QueryResolver, RetryConfig};
-    /// use semantic_query::semantic::{SemanticItem};
+    /// use semantic_query::streaming::{StreamItem};
     /// use semantic_query::clients::flexible::FlexibleClient;
     /// use serde::Deserialize;
     /// use schemars::JsonSchema;
@@ -307,26 +313,26 @@ Include at least one JSON value that strictly conforms to the following JSON Sch
     /// # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = FlexibleClient::mock().0;
     /// let resolver = QueryResolver::new(client, RetryConfig::default());
-    /// let mut stream = resolver.stream_semantic::<ToolCall>("Think step-by-step and use tools".to_string()).await?;
+    /// let mut stream = resolver.stream_query::<ToolCall>("Think step-by-step and use tools".to_string()).await?;
     /// while let Some(item) = stream.next().await {
     ///     match item {
-    ///         Ok(SemanticItem::Token(tok)) => print!("{}", tok), // Real-time tokens
-    ///         Ok(SemanticItem::Text(t)) => println!("[chat] {}", t.text),
-    ///         Ok(SemanticItem::Data(d)) => println!("[tool] {}", d.name),
+    ///         Ok(StreamItem::Token(tok)) => print!("{}", tok), // Real-time tokens
+    ///         Ok(StreamItem::Text(t)) => println!("[chat] {}", t.text),
+    ///         Ok(StreamItem::Data(d)) => println!("[tool] {}", d.name),
     ///         Err(e) => eprintln!("Stream error: {}", e),
     ///     }
     /// }
     /// # Ok(()) }
     /// ```
     #[instrument(target = "semantic_query::resolver", skip(self, prompt), fields(prompt_len = prompt.len()))]
-    pub async fn stream_semantic<T>(&self, prompt: String) -> Result<Pin<Box<dyn futures_core::stream::Stream<Item = Result<SemanticItem<T>, crate::error::QueryResolverError>> + Send>>, crate::error::QueryResolverError>
+    pub async fn stream_query<T>(&self, prompt: String) -> ParsedStreamResult<T>
     where
         T: DeserializeOwned + JsonSchema + Send + 'static,
     {
-        info!(prompt_len = prompt.len(), "Starting semantic streaming query");
+        info!(prompt_len = prompt.len(), "Starting streaming query");
         
         // For streaming, we don't want the semantic schema - just the data schema
-        // The semantic items are created by our parser, not returned by the model
+        // The stream items are created by our parser, not returned by the model
         let augmented_prompt = self.augment_prompt_with_schema::<T>(prompt);
         debug!(prompt_len = augmented_prompt.len(), "Using raw prompt for streaming");
         
@@ -339,21 +345,21 @@ Include at least one JSON value that strictly conforms to the following JSON Sch
         
         info!("Successfully initiated streaming response");
         
-        // Convert SSE bytes stream to semantic items and box it
-        Ok(Box::pin(crate::semantic::stream_semantic_from_sse_bytes::<T>(stream)))
+        // Convert SSE bytes stream to stream items and box it
+        Ok(Box::pin(crate::streaming::stream_from_sse_bytes::<T>(stream)))
     }
 
-    /// Stream `SemanticItem<T>` from any `AsyncRead` of model output.
+    /// Stream `StreamItem<T>` from any `AsyncRead` of model output.
     ///
     /// Lower-level API for when you already have a reader. Most users should use
-    /// `stream_semantic()` instead for the full end-to-end experience.
+    /// `stream_query()` instead for the full end-to-end experience.
     ///
     /// Example (synthetic stream):
     /// ```no_run
     /// use tokio::io::{duplex, AsyncWriteExt};
     /// use futures_util::{StreamExt, pin_mut};
     /// use semantic_query::core::{QueryResolver, RetryConfig};
-    /// use semantic_query::semantic::{SemanticItem};
+    /// use semantic_query::streaming::{StreamItem};
     /// use serde::Deserialize;
     /// use schemars::JsonSchema;
     ///
@@ -367,18 +373,18 @@ Include at least one JSON value that strictly conforms to the following JSON Sch
     ///     let _ = tx.write_all(br#"{"message":"world"}"#).await;
     /// });
     /// let resolver = QueryResolver::new(semantic_query::clients::mock::MockVoid, RetryConfig::default());
-    /// let s = resolver.query_semantic_stream::<Finding,_>(rx, 1024);
+    /// let s = resolver.query_stream::<Finding,_>(rx, 1024);
     /// pin_mut!(s);
     /// while let Some(item) = s.next().await {
-    ///     match item { SemanticItem::Text(t) => println!("text: {}", t.text), SemanticItem::Data(d) => println!("data: {}", d.message), }
+    ///     match item { StreamItem::Text(t) => println!("text: {}", t.text), StreamItem::Data(d) => println!("data: {}", d.message), }
     /// }
     /// # Ok(()) }
     /// ```
-    pub fn query_semantic_stream<T, R>(&self, reader: R, buf_size: usize) -> impl futures_core::stream::Stream<Item = SemanticItem<T>>
+    pub fn query_stream<T, R>(&self, reader: R, buf_size: usize) -> impl futures_core::stream::Stream<Item = StreamItem<T>>
     where
         T: DeserializeOwned + JsonSchema + Send + 'static,
         R: tokio::io::AsyncRead + Unpin + Send + 'static,
     {
-        crate::semantic::stream_semantic_from_async_read::<R, T>(reader, buf_size)
+        crate::streaming::stream_from_async_read::<R, T>(reader, buf_size)
     }
 }

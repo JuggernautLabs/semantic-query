@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use semantic_query::clients::flexible::{FlexibleClient, ClientType};
 use semantic_query::core::{QueryResolver, RetryConfig};
-use semantic_query::semantic::SemanticItem;
+use semantic_query::streaming::StreamItem;
 use futures_util::StreamExt;
 
 /// A minimal, flexible tool call representation.
@@ -63,20 +63,20 @@ Go ahead and start thinking through this task.
     println!("=================================================");
 
     // This is the new simple API - no pin_mut! needed!
-    let mut stream = resolver.stream_semantic::<ToolCall>(prompt).await?;
+    let mut stream = resolver.stream_query::<ToolCall>(prompt).await?;
 
     let mut tool_count = 0;
     let mut in_token_stream = false;
     
     while let Some(item_result) = stream.next().await {
         match item_result {
-            Ok(SemanticItem::Token(token)) => {
+            Ok(StreamItem::Token(token)) => {
                 // Print tokens in real-time for live streaming effect
                 print!("{}", token);
                 std::io::Write::flush(&mut std::io::stdout()).ok();
                 in_token_stream = true;
             }
-            Ok(SemanticItem::Text(text)) => {
+            Ok(StreamItem::Text(text)) => {
                 // Text chunks are aggregated content, print on new line if we were streaming tokens
                 if in_token_stream {
                     println!(); // End the token line
@@ -87,7 +87,7 @@ Go ahead and start thinking through this task.
                     println!("💭 {}", content);
                 }
             }
-            Ok(SemanticItem::Data(tool_call)) => {
+            Ok(StreamItem::Data(tool_call)) => {
                 if in_token_stream {
                     println!(); // End the token line
                     in_token_stream = false;

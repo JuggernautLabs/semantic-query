@@ -12,7 +12,7 @@ fn main() {
     let mut p = JsonStreamParser::new();
     let mut accum = String::new();
     for c in chunks {
-        print!("feeding chunk: {:?}\n", c);
+        println!("feeding chunk: {:?}", c);
         accum.push_str(c);
         for node in p.feed(c) {
             let end = node.end + 1;

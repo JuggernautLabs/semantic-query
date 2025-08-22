@@ -164,7 +164,7 @@ ery code.
 thinking
 **Proposing code changes**
 
-I’m considering some updates. First, I think we should add SemanticItem and quer
+I’m considering some updates. First, I think we should add StreamItem and quer
 y_semantic. I want to keep minimal code changes, so I’ll introduce a new file ca
 lled src/semantic.rs and update lib.rs accordingly. I also plan to add a small e
 xample in examples/semantic_demo.rs and make a brief mention in the README. Howe
@@ -175,18 +175,18 @@ treamlined while ensuring we handle the bounds carefully for JsonSchema derives.
 I'm looking at the traits needed for serialization and wondering if T really nee
 ds to be Serialize. It seems that while the derive requires it, we might not act
 ually need it in practice. We could skip deriving Serialize if it's unnecessary.
- For generating the schema of SemanticItem<T> with schemars, T only needs to be 
+ For generating the schema of StreamItem<T> with schemars, T only needs to be 
 JsonSchema, which simplifies things. TextContent can still derive JsonSchema, an
-d for the necessary Serde deserialization, we need Deserialize for SemanticItem<
+d for the necessary Serde deserialization, we need Deserialize for StreamItem<
 T>. I’ll derive Serialize only if we absolutely need it.**Designing semantic typ
 es**
 
-To simplify generics, I’m proposing to define the SemanticItem type like this:
+To simplify generics, I’m proposing to define the StreamItem type like this:
 
 ```rust
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(tag="kind", content="content")]
-pub enum SemanticItem<T> {
+pub enum StreamItem<T> {
    Text(TextContent),
    Data(T),
 }
@@ -202,7 +202,7 @@ pub struct TextContent {
 ```
 
 Additionally, I think we could implement a convenience type, SemanticStream<T>, 
-as a vector of SemanticItems. In core.rs, I’ll add the query_semantic method in 
+as a vector of StreamItems. In core.rs, I’ll add the query_semantic method in 
 the QueryResolver implementation. We also need to ensure we import crate::semant
 ic. Lastly, I plan to run `cargo check` to verify everything works, being mindfu
 l of network restrictions for dependencies.**Considering build dependencies**
@@ -247,7 +247,7 @@ we present the deliverables.
 
 📋 Updated to do list [██████░░░░] 3/5
 note
-Added `semantic` module and `query_semantic` returning `Vec<SemanticItem<T>>` to preserve interleaved text and structured data.
+Added `semantic` module and `query_semantic` returning `Vec<StreamItem<T>>` to preserve interleaved text and structured data.
   ⎿ ✔ Survey repo structure and key files
     ✔ Locate semantic query output types
     □ Propose cleanup and type redesign
@@ -294,11 +294,11 @@ DME is good (already present inline as errors).
 What I changed: enum(TextContent, T)
 - New module `src/semantic.rs`:
   - `TextContent { text: String }`: free-form content.
-  - `SemanticItem<T>`: an enum tagged as `{ kind, content }` with variants `Text
+  - `StreamItem<T>`: an enum tagged as `{ kind, content }` with variants `Text
 (TextContent)` and `Data(T)`.
-  - `SemanticStream<T> = Vec<SemanticItem<T>>` alias.
+  - `SemanticStream<T> = Vec<StreamItem<T>>` alias.
 - `QueryResolver::query_semantic<T>`:
-  - Returns `Vec<SemanticItem<T>>`, preserving order.
+  - Returns `Vec<StreamItem<T>>`, preserving order.
   - Leverages existing `ask_with_schema`, but targets the schema for `Vec<Semant
 icItem<T>>`.
 - Exports: Added `pub mod semantic;` in `lib.rs`.
@@ -310,9 +310,9 @@ ind": "Data", "content": <T> }`.
   - Your downstream can render the text in place while still deserializing struc
 tured parts.
 - Example pseudo-usage:
-  - `let items: Vec<SemanticItem<MyType>> = resolver.query_semantic(prompt).awai
+  - `let items: Vec<StreamItem<MyType>> = resolver.query_semantic(prompt).awai
 t?;`
-  - Iterate and handle `SemanticItem::Text` vs `SemanticItem::Data`.
+  - Iterate and handle `StreamItem::Text` vs `StreamItem::Data`.
 
 Follow-on cleanups I recommend
 - Prompt template tuning:
@@ -320,7 +320,7 @@ Follow-on cleanups I recommend
 ay of items where each item is either {kind: 'Text', content: {text}} or {kind: 
 'Data', content: <schema for T>}.”
   - The existing `augment_prompt_with_schema` already suffices because we pass i
-n the schema for `Vec<SemanticItem<T>>`, but adding a one-line primer before the
+n the schema for `Vec<StreamItem<T>>`, but adding a one-line primer before the
  schema often boosts compliance.
 - Optional refactor:
   - Collapse JSON extraction into a single utility that returns either a recover
@@ -331,7 +331,7 @@ w text, or keep it only for legacy paths, not used by the resolver.
   - Rename `query_raw` → `query_deserialized` (or document clearly).
   - Prune unused imports in `clients/flexible.rs`.
   - Consider adding a short README section for “Semantic Responses” with a tiny 
-example for `SemanticItem<T>`.
+example for `StreamItem<T>`.
 
 If you want, I can:
 - Add a small example `examples/semantic_demo.rs` showing interleaved text and d
@@ -340,10 +340,10 @@ ata handling.
 - Refactor the JSON extraction path and clean the minor imports.
 
 Summary of changes
-- Added `src/semantic.rs` with `TextContent`, `SemanticItem<T>`, and `SemanticSt
+- Added `src/semantic.rs` with `TextContent`, `StreamItem<T>`, and `SemanticSt
 ream<T>`.
 - Exposed via `lib.rs`.
-- Added `QueryResolver::query_semantic<T>` returning `Vec<SemanticItem<T>>`, pre
+- Added `QueryResolver::query_semantic<T>` returning `Vec<StreamItem<T>>`, pre
 serving order and full information.
 
 Next step
@@ -384,8 +384,8 @@ I’m considering adding an example to clarify things!
 
 First, for the prompt modifications, `augment_prompt_with_schema` currently inst
 ructs the model to output a single JSON value. However, since we want to inform 
-the model about `SemanticItem<T>`, it seems smart to enhance it with a preface. 
-I could modify the function to detect if the type name includes "SemanticItem." 
+the model about `StreamItem<T>`, it seems smart to enhance it with a preface. 
+I could modify the function to detect if the type name includes "StreamItem." 
 I could also create a new function, `augment_prompt_with_schema_with_preamble<T>
 `, for this purpose.
 
@@ -433,7 +433,7 @@ hes!
 codex
 I’m going to refactor JSON extraction to a single path in the resolver, add a se
 mantic-specific prompt augmenter, and include a runnable example demonstrating `
-SemanticItem<T>`.
+StreamItem<T>`.
 
 thinking
 I’m noticing that the patch failed because the content in core.rs doesn’t match 
@@ -445,7 +445,7 @@ ffectively. It's all about ensuring everything aligns as it should!
 ⚡ Ran command sed -n '1,280p' src/core.rs; sed -n '280,680p' src/core.rs
   ⎿ use crate::error::{QueryResolverError, AIError};
     use crate::json_utils;
-    use crate::semantic::SemanticItem;
+    use crate::semantic::StreamItem;
     ... +142 lines
 
 ⚡ Ran command sed -n '680,1200p' src/core.rs
@@ -453,7 +453,7 @@ ffectively. It's all about ensuring everything aligns as it should!
 ⚡ Ran command awk 'NR>=1 && NR<=260{print NR":"$0}' src/core.rs | sed -n '1,260p'
   ⎿ 1:use crate::error::{QueryResolverError, AIError};
     2:use crate::json_utils;
-    3:use crate::semantic::SemanticItem;
+    3:use crate::semantic::StreamItem;
     ... +135 lines
 
 ⚡ Ran command sed -n '220,420p' src/core.rs | nl -ba
@@ -650,8 +650,8 @@ Here’s a focused cleanup and the streaming JSON structure support you describe
 
 What I changed
 - Semantic stream support:
-  - Added `src/semantic.rs` with `TextContent`, `SemanticItem<T> = Text | Data(T
-)`, and `SemanticStream<T> = Vec<SemanticItem<T>>`.
+  - Added `src/semantic.rs` with `TextContent`, `StreamItem<T> = Text | Data(T
+)`, and `SemanticStream<T> = Vec<StreamItem<T>>`.
   - Added `QueryResolver::query_semantic<T>()` that requests a schema for `Vec<S
 emanticItem<T>>` so models can interleave text and structured `T` without losing
  information.
@@ -678,7 +678,7 @@ r any unparsed subtree.
  over mixed text+JSON blob and printing `Parsed` vs `Unknown` items.
 
 Why this fits your goals
-- Preserves order and fidelity: `SemanticItem<T>` lets the agent mix free text a
+- Preserves order and fidelity: `StreamItem<T>` lets the agent mix free text a
 nd structured `T` in the natural order. Downstream systems retain full context.
 - Stream-first JSON coordinates: `JsonStreamParser` is stateful and incremental,
 - Smart deserialization strategy: Attempt on outer nodes first; if successful, s
@@ -688,7 +688,7 @@ ialize an ObjCoords, don’t try internals” and provides `[T, Unknown<[ObjCoor
 
 How to use
 - Semantic responses:
-  - `let items: Vec<SemanticItem<MyType>> = resolver.query_semantic(prompt).awai
+  - `let items: Vec<StreamItem<MyType>> = resolver.query_semantic(prompt).awai
 t?;`
 - Structure streaming:
   - Batch: `let coords = json_utils::find_json_structures(text);`
@@ -820,7 +820,7 @@ r)` (incremental).
 arent-first deserialization, recursing only when needed and surfacing `Unknown` 
 nodes for upstream handling.
 - Semantic output:
-  - `src/semantic.rs` with `TextContent`, `SemanticItem<T>`, `SemanticStream<T>`
+  - `src/semantic.rs` with `TextContent`, `StreamItem<T>`, `SemanticStream<T>`
 .
   - `QueryResolver::query_semantic<T>()` plus a semantic-specific prompt augment
 er.
@@ -833,7 +833,7 @@ Why this is better
 ittle heuristics.
 - Stream-first design works with chunked upstream parsing, immediately surfacing
  closed objects.
-- Keeps full fidelity: you can choose either `SemanticItem<T>` for interleaved t
+- Keeps full fidelity: you can choose either `StreamItem<T>` for interleaved t
 ext+data, or use stream coordinates to lift out only what you need.
 
 Notes and potential next steps
@@ -934,7 +934,7 @@ e_stream_map<T>`) for non-streaming paths.
   - Dropped `regex` dependency.
 
 - Semantic output:
-  - `SemanticItem<T>` with `Text | Data(T)` and `query_semantic<T>()` with a sem
+  - `StreamItem<T>` with `Text | Data(T)` and `query_semantic<T>()` with a sem
 antic prompt augmenter for compliant interleaved outputs.
 
 How to use for streaming clients
@@ -1022,7 +1022,7 @@ s soon as a matching `T` appears).
   - Integrate a streaming client (Claude/DeepSeek) and wire it to these streams.
 
 user
-make sure this stream parser is what's used to construct the SemanticItem
+make sure this stream parser is what's used to construct the StreamItem
 
 thinking
 **Clarifying JSON structures**
@@ -1068,21 +1068,21 @@ rs and the query_semantic as the user requested.
 ⚡ Ran command cargo check -q
 
 codex
-Got it. I’ve wired SemanticItem construction to the stream parser so we don’t de
+Got it. I’ve wired StreamItem construction to the stream parser so we don’t de
 pend on brittle sanitization or monolithic JSON arrays.
 
 What changed
 - Semantic assembly uses the parser:
-  - Added `semantic::build_semantic_stream<T>(&str) -> Vec<SemanticItem<T>>`.
+  - Added `semantic::build_semantic_stream<T>(&str) -> Vec<StreamItem<T>>`.
   - It uses `json_utils::find_json_structures` to segment the raw text:
-    - Emits preceding/trailing text as `SemanticItem::Text`.
+    - Emits preceding/trailing text as `StreamItem::Text`.
     - Attempts to deserialize each JSON root to `T`: if it succeeds, emits `Sema
 nticItem::Data(T)`; otherwise preserves the JSON slice as `Text`.
   - `QueryResolver::query_semantic<T>` now:
     - Builds a semantic-oriented prompt (includes the schema for `Vec<SemanticIt
 em<T>>`).
     - Calls `client.ask_raw(...)` once.
-    - Constructs `Vec<SemanticItem<T>>` via `build_semantic_stream<T>(raw)`.
+    - Constructs `Vec<StreamItem<T>>` via `build_semantic_stream<T>(raw)`.
 - Streaming primitives already in place:
   - `JsonStreamParser` with `.feed(&str)` for incremental parsing.
   - Async, stream-first utilities:
@@ -1101,11 +1101,11 @@ egex` dep.
 ` for non-semantic queries.
 
 Impact
-- `query_semantic` returns a faithful, ordered `Vec<SemanticItem<T>>` derived fr
+- `query_semantic` returns a faithful, ordered `Vec<StreamItem<T>>` derived fr
 om the raw output using the structural parser, ensuring all text is preserved an
 d structured elements are upgraded to `Data(T)` when possible.
-- Streaming clients can adopt `stream_parsed` to yield `SemanticItem<T>` analogs
- on the fly (small adapter would map `ParsedOrUnknown<T>` to `SemanticItem<T>` a
+- Streaming clients can adopt `stream_parsed` to yield `StreamItem<T>` analogs
+ on the fly (small adapter would map `ParsedOrUnknown<T>` to `StreamItem<T>` a
 nd insert Text for gaps if you buffer the preceding text).
 
 Optional next steps
@@ -1236,9 +1236,9 @@ oving test robustness**
 
 I need to strengthen the test by using `query_semantic`, which relies on schema 
 augmentation to guide the model. Currently, our `query_semantic` only augments t
-he prompt with the schema for SemanticItem, eventually calling `ask_raw` and bui
+he prompt with the schema for StreamItem, eventually calling `ask_raw` and bui
 lding the semantic stream. This approach might result in the model not returning
- a JSON array of SemanticItems. Instead, the `build_semantic_stream` only extrac
+ a JSON array of StreamItems. Instead, the `build_semantic_stream` only extrac
 ts roots and attempts to parse to T, missing nested items. To address this, I’ll
  enhance `build_semantic_stream` to delve into arrays and objects to locate nest
 ed items that fit T.**Modifying build_semantic_stream**
@@ -1277,7 +1277,7 @@ implement these enhancements!
 ⚡ Ran command sed -n '1,240p' tests/deepseek_live.rs | nl -ba
   ⎿      1      use semantic_query::clients::flexible::{FlexibleClient, ClientType};
          2      use semantic_query::core::{QueryResolver, RetryConfig};
-         3      use semantic_query::semantic::{SemanticItem};
+         3      use semantic_query::semantic::{StreamItem};
     ... +40 lines
 
 thinking
@@ -1532,7 +1532,7 @@ necessary. Let's go ahead and make that patch!
 ⚡ Ran command sed -n '1,200p' tests/deepseek_live.rs
   ⎿ use semantic_query::clients::flexible::{FlexibleClient, ClientType};
     use semantic_query::core::{QueryResolver, RetryConfig};
-    use semantic_query::semantic::{SemanticItem};
+    use semantic_query::semantic::{StreamItem};
     ... +64 lines
 
 ✏️  Applying patch to 1 file (+1 -3)
@@ -2253,14 +2253,14 @@ How to use logging now
 Notes on cleanup
 - The stream parser is the sole extraction path now; legacy sanitization removed
 .
-- `SemanticItem<T>` assembly uses the structure parser to interleave text and st
+- `StreamItem<T>` assembly uses the structure parser to interleave text and st
 ructured data.
 - Tests use FlexibleClient and set up tracing with `.with_test_writer()` so logs
  show in test output when using `--nocapture`.
 
 Want me to continue with more cleanup?
 - Rename `query_raw` to `query_deserialized` (or add doc clarifications).
-- Add a streaming resolver API returning a Stream<Item = SemanticItem<T>> for re
+- Add a streaming resolver API returning a Stream<Item = StreamItem<T>> for re
 altime toolcalls.
 - Remove unused deps/features (e.g., divan) if not needed.
 - Tighten provider placeholders and gate them behind feature flags.
@@ -2373,7 +2373,7 @@ Next cleanups I can do
 - API clarity:
   - Rename `query_raw<T>` → `query_deserialized<T>` (or document strongly) to av
 oid confusion.
-  - Add a streaming resolver API that returns a `Stream<Item = SemanticItem<T>>`
+  - Add a streaming resolver API that returns a `Stream<Item = StreamItem<T>>`
  for realtime toolcalls (wrapping `stream_parsed` and emitting interleaved text 
 with minimal buffering).
 - Dependency hygiene:
@@ -2537,10 +2537,10 @@ n `.env` controls logging across the project.
   - Non-interactive example: `cargo run --example semantic_stream_demo` prints a
 nd logs without prompting.
 - Stream-first semantic API
-  - `semantic::build_semantic_stream<T>`: constructs `Vec<SemanticItem<T>>` from
+  - `semantic::build_semantic_stream<T>`: constructs `Vec<StreamItem<T>>` from
  a raw output using the structure parser; interleaves `Text` and `Data(T)`.
   - `semantic::stream_semantic_from_async_read<R,T>`: returns `impl futures::Str
-eam<Item=SemanticItem<T>>`, incrementally parsing from any `AsyncRead`, emitting
+eam<Item=StreamItem<T>>`, incrementally parsing from any `AsyncRead`, emitting
  `Text` between JSON roots and `Data(T)` for parsed structures. Enables realtime
  toolcalls.
 - Legacy sanitization removed
@@ -2583,7 +2583,7 @@ helpful.
 
 If you want, I’ll proceed to:
 - Add `QueryResolver::query_semantic_stream<T, R: AsyncRead>(reader, buf)` to re
-turn a `Stream<Item=SemanticItem<T>>` for cohesive resolver-level streaming.
+turn a `Stream<Item=StreamItem<T>>` for cohesive resolver-level streaming.
 - Rename or deprecate `query_raw` for clarity, and tighten docs.
 
 user
@@ -2605,7 +2605,7 @@ l `query_raw` line. To clarify, I'll open `core.rs` and double-check.
 ⚡ Ran command sed -n '1,220p' src/core.rs
   ⎿ use crate::error::{QueryResolverError, AIError};
     use crate::json_utils;
-    use crate::semantic::SemanticItem;
+    use crate::semantic::StreamItem;
     ... +138 lines
 
 ⚡ Ran command sed -n '220,520p' src/core.rs
@@ -2723,10 +2723,10 @@ ults `["anthropic","deepseek"]`.
   - The providers demo example is gated to only build when features are enabled.
 
 - Stream-First Semantic API
-  - `semantic::build_semantic_stream<T>(&str) -> Vec<SemanticItem<T>>`: segments
+  - `semantic::build_semantic_stream<T>(&str) -> Vec<StreamItem<T>>`: segments
  raw output using the structure parser and interleaves `Text` and `Data(T)`.
   - `semantic::stream_semantic_from_async_read<R, T>(reader, buf) -> impl Stream
-<Item = SemanticItem<T>>`: incrementally parses any `AsyncRead` and yields items
+<Item = StreamItem<T>>`: incrementally parses any `AsyncRead` and yields items
  as structures close, enabling realtime toolcalls.
 
 - Logging UX
@@ -2740,9 +2740,9 @@ Impact on usage
   - One-shot deserialization: `resolver.query_deserialized::<T>(prompt).await?`
   - Schema-aware: `resolver.query_with_schema::<T>(prompt).await?`
   - Semantic items (one-shot): `resolver.query_semantic::<T>(prompt).await? -> V
-ec<SemanticItem<T>>`
+ec<StreamItem<T>>`
   - For true streaming, use `semantic::stream_semantic_from_async_read` on your 
-streaming reader to get `Stream<Item = SemanticItem<T>>`.
+streaming reader to get `Stream<Item = StreamItem<T>>`.
 
 - FlexibleClient
   - New constructor from type: `FlexibleClient::from_type(ClientType::DeepSeek)`
@@ -2764,7 +2764,7 @@ ture`
 
 Next steps I can take
 - Add a `QueryResolver::query_semantic_stream<T, R: AsyncRead>(R) -> impl Stream
-<Item=SemanticItem<T>>` wrapper for cohesive resolver-level streaming.
+<Item=StreamItem<T>>` wrapper for cohesive resolver-level streaming.
 - Add deprecation notes or re-export aliases for old method names if you want to
  avoid breaking downstream code immediately (I’ve already updated all internal r
 eferences).
@@ -2860,7 +2860,7 @@ hropic and deepseek.
   - FlexibleClient:
     - new_type → from_type
 - Stream-first semantic support:
-  - build_semantic_stream<T>(&str) → Vec<SemanticItem<T>>
+  - build_semantic_stream<T>(&str) → Vec<StreamItem<T>>
   - stream_semantic_from_async_read<R, T>(reader, buf) → impl Stream<Item = Sema
 nticItem<T>>
 - Logging cleanup:
@@ -2877,12 +2877,12 @@ How to use provider features
 
 Next steps I propose
 - Add QueryResolver::query_semantic_stream<T, R: AsyncRead>(reader) to return a 
-Stream<Item = SemanticItem<T>> for resolver-level streaming without wiring json_
+Stream<Item = StreamItem<T>> for resolver-level streaming without wiring json_
 utils directly.
 - Add a streaming example that uses a synthetic AsyncRead to demonstrate realtim
 e parsing and how to hook toolcalls.
 - Tighten docs/comments around the new method names and the stream-first archite
-cture (why SemanticItem<T> preserves fidelity and order).
+cture (why StreamItem<T> preserves fidelity and order).
 
 Want me to implement the resolver-level streaming API and a small streaming exam
 ple next?
@@ -2935,14 +2935,14 @@ Key updates
 am-based extraction.
   - `QueryResolver::query_with_schema<T>(prompt)`: appends JSON Schema for `T` t
 hen returns `T`.
-  - `QueryResolver::query_semantic<T>(prompt)`: returns `Vec<SemanticItem<T>>` c
+  - `QueryResolver::query_semantic<T>(prompt)`: returns `Vec<StreamItem<T>>` c
 onstructed via the stream parser.
   - `QueryResolver::query_semantic_stream<T, R: AsyncRead>(reader, buf) -> Strea
-m<Item=SemanticItem<T>>`: wraps the streaming parser for realtime use.
+m<Item=StreamItem<T>>`: wraps the streaming parser for realtime use.
   - `FlexibleClient::from_type(ClientType)`: replaces `new_type`.
 
 - Stream-first semantic types and docs
-  - `SemanticItem<T>` and `TextContent` now include usage docs.
+  - `StreamItem<T>` and `TextContent` now include usage docs.
   - `build_semantic_stream<T>(&str)` and `stream_semantic_from_async_read<R,T>` 
 have doc comments and intended usage guidance.
 
@@ -2967,11 +2967,11 @@ Usage snippets
 
 - One-shot
   - `let x: MyType = resolver.query_with_schema(prompt).await?;`
-  - `let items: Vec<SemanticItem<MyType>> = resolver.query_semantic(prompt).awai
+  - `let items: Vec<StreamItem<MyType>> = resolver.query_semantic(prompt).awai
 t?;`
 
 - Streaming (resolver)
-  - Create a stream of `SemanticItem<T>` from any `AsyncRead`:
+  - Create a stream of `StreamItem<T>` from any `AsyncRead`:
     - `let s = resolver.query_semantic_stream::<T,_>(reader, 8192);`
     - Consume with `StreamExt::next()` and trigger toolcalls as `Data(T)` appear
 s.
@@ -3032,14 +3032,14 @@ What I added
 - Streaming example: examples/semantic_stream_resolver_demo.rs
   - Shows QueryResolver::query_semantic_stream with a synthetic AsyncRead (tokio
 ::io::duplex).
-  - Emits SemanticItem<Text|Data(T)> incrementally and demonstrates where to hoo
+  - Emits StreamItem<Text|Data(T)> incrementally and demonstrates where to hoo
 k realtime toolcalls.
   - Loads .env and respects RUST_LOG in .env.
   - Non-interactive.
 
 - Resolver streaming API
   - QueryResolver::query_semantic_stream<T, R: AsyncRead>(reader, buf) -> Stream
-<Item = SemanticItem<T>>
+<Item = StreamItem<T>>
   - Thin wrapper over the stream-first parser in semantic.rs.
 
 - Core and semantic docs
@@ -3048,7 +3048,7 @@ k realtime toolcalls.
     - LowLevelClient
     - query_deserialized, query_with_schema, query_semantic
     - query_semantic_stream (with inline example)
-  - semantic.rs includes usage notes for TextContent, SemanticItem<T>, build_sem
+  - semantic.rs includes usage notes for TextContent, StreamItem<T>, build_sem
 antic_stream, and stream_semantic_from_async_read (with intended use).
 
 - Renames (already applied earlier; verified usages)
@@ -3099,7 +3099,7 @@ run the stream resolver demo
 
 ⚡ Ran command cargo run --example semantic_stream_resolver_demo
   ⎿ 2025-08-12T11:41:18.462285Z  INFO semantic_query::core: Creating new QueryResolver with retry config default_max_retries=1
-    === Streaming SemanticItem<Finding> ===
+    === Streaming StreamItem<Finding> ===
     text: Hello user, here is an update: 
     ... +3 lines
 
@@ -3137,7 +3137,7 @@ Core polish and docs
     - query_semantic
     - query_semantic_stream (with a no_run example).
 - src/semantic.rs:
-  - Improved usage comments for TextContent, SemanticItem<T>, build_semantic_str
+  - Improved usage comments for TextContent, StreamItem<T>, build_semantic_str
 eam, and stream_semantic_from_async_read.
   - Clarified when to use the streaming vs one-shot APIs.
 
@@ -3231,7 +3231,7 @@ ged, not executed.
  and JSON tool calls that match a simple ToolCall schema:
     - ToolCall { name: String, args: serde_json::Value }
   - Uses build_semantic_stream<ToolCall>(&raw) to parse the one-shot response in
-to SemanticItem<Text|Data(ToolCall)>.
+to StreamItem<Text|Data(ToolCall)>.
   - Renders:
     - Text lines as “[agent] …”
     - Data(ToolCall) as “[toolcall N] name=… args=…”
@@ -3255,7 +3255,7 @@ ic AsyncRead.
 Stream resolver demo
 - examples/semantic_stream_resolver_demo.rs:
   - Simulates a streaming model via tokio::io::duplex, pins the stream, and rend
-ers SemanticItem<Finding> incrementally.
+ers StreamItem<Finding> incrementally.
   - Verified running locally; output shows interleaved text and data.
 
 Provider features
@@ -3300,7 +3300,7 @@ What it does
 - Uses `FlexibleClient::from_type(ClientType::DeepSeek)` + `QueryResolver`.
 - Prompts DeepSeek to interleave chat lines and JSON tool calls (`{ "name": stri
 ng, "args": object }`).
-- Parses with stream parser → `Vec<SemanticItem<ToolCall>>`.
+- Parses with stream parser → `Vec<StreamItem<ToolCall>>`.
 - Renders like IRC:
   - Chat: `[agent] …`
   - Tool calls (logged only): `[toolcall N] name=... args=...`
@@ -3911,7 +3911,7 @@ How to use streaming now
 ver:
   - Build an `AsyncRead` via `FlexibleClient::stream_raw_reader(prompt)`.
   - Feed into `QueryResolver::query_semantic_stream::<T, _>(reader, buf)`.
-  - You get `Stream<Item=SemanticItem<T>>` to trigger toolcalls or render in rea
+  - You get `Stream<Item=StreamItem<T>>` to trigger toolcalls or render in rea
 l time.
 
 - The DeepSeek demo (agent-style IRC rendering with tool calls) remains one-shot
@@ -4050,7 +4050,7 @@ How to use streaming
     - let reader = flexible_client.stream_raw_reader(prompt);
   - Parse in real time:
     - let stream = resolver.query_semantic_stream::<T, _>(reader, 8192);
-    - Consume items as they arrive and trigger toolcalls on SemanticItem::Data(T
+    - Consume items as they arrive and trigger toolcalls on StreamItem::Data(T
 ).
 
 - One-shot semantic:

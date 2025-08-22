@@ -9,6 +9,7 @@ use std::io::{self, Write};
 use std::sync::OnceLock;
 use std::time::Instant;
 use tokio::task::JoinSet;
+use std::str::FromStr;
 
 
 
@@ -21,7 +22,7 @@ fn get_client() -> &'static FlexibleClient {
         let client_type = env::var("TEST_CLIENT")
             .ok()
             .and_then(|s| ClientType::from_str(&s).ok())
-            .unwrap_or_else(ClientType::default);
+            .unwrap_or_default();
         
         FlexibleClient::from_type(client_type)
     })
@@ -171,7 +172,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Individual benchmark functions that can run in parallel
-
 async fn benchmark_math_query(_verbose: bool) -> String {
     let client = get_client().clone();
     let resolver = QueryResolver::new(client, RetryConfig::default());
