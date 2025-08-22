@@ -18,6 +18,7 @@ use semantic_query::clients::flexible::{FlexibleClient, ClientType};
 use semantic_query::core::{QueryResolver, RetryConfig};
 use semantic_query::streaming::StreamItem;
 use futures_util::{StreamExt, pin_mut};
+use std::env;
 
 /// A minimal, flexible tool call representation.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -35,6 +36,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .try_init();
+    
+    // Check for demo style
+    let demo_style = env::var("AGENT_DEMO_STYLE").unwrap_or_default();
+    let raw_mode = demo_style.to_lowercase() == "raw";
+    let debug_delete = demo_style.to_lowercase() == "debug_delete";
 
     // Create a DeepSeek client and wrap in QueryResolver
     let client = FlexibleClient::from_type(ClientType::DeepSeek);
@@ -69,6 +75,11 @@ Approach: Think step-by-step, chat your thoughts, and propose tool calls.
     pin_mut!(evs);
 
     println!("=== DeepSeek Agent Demo (IRC-style, streaming) ===");
+    if raw_mode {
+        println!("   [RAW MODE - showing unprocessed stream]");
+    } else if debug_delete {
+        println!("   [DEBUG DELETE MODE - showing deletion markers]");
+    }
     let mut tool_calls = 0usize;
     let mut printed_live = false;
     let mut last_was_newline = false;
@@ -78,9 +89,16 @@ Approach: Think step-by-step, chat your thoughts, and propose tool calls.
     let mut json_escape = false;
     let mut json_lines_current: usize = 0;  // lines printed in current JSON block (at least 1 if started)
     let mut json_lines_pending: usize = 0;  // lines to clear when Data(ToolCall) arrives
+    let mut text_before_json = String::new(); // accumulate text before JSON starts
     while let Some(ev) = evs.next().await {
         match ev {
             Ok(StreamItem::Token(tok)) => {
+                if raw_mode {
+                    // In raw mode, just print tokens as they arrive
+                    print!("{}", tok);
+                    let _ = std::io::Write::flush(&mut std::io::stdout());
+                    continue;
+                }
                 // Normalize whitespace in live token stream:
                 // - drop pure whitespace tokens except at most a single newline
                 // - collapse consecutive newlines
@@ -111,7 +129,13 @@ Approach: Think step-by-step, chat your thoughts, and propose tool calls.
                     } else {
                         match b {
                             b'"' if json_depth > 0 => { json_in_string = true; }
-                            b'{' | b'[' => { json_depth += 1; }
+                            b'{' | b'[' => { 
+                                if json_depth == 0 {
+                                    // About to start JSON - save any text printed so far
+                                    text_before_json.clear();
+                                }
+                                json_depth += 1; 
+                            }
                             b'}' | b']' => { json_depth -= 1; }
                             _ => {}
                         }
@@ -130,14 +154,27 @@ Approach: Think step-by-step, chat your thoughts, and propose tool calls.
                 if depth_before > 0 && json_depth == 0 && json_lines_current > 0 {
                     json_lines_pending = json_lines_current;
                     json_lines_current = 0;
+                    if debug_delete {
+                        println!("\n[[[STAGED {} LINES FOR DELETION]]]", json_lines_pending);
+                    }
                 }
             }
             Ok(StreamItem::Text(text)) => {
+                if raw_mode {
+                    // In raw mode, show text chunks with markers
+                    println!("\n[TEXT_CHUNK: {:?}]", text.text);
+                    continue;
+                }
                 let chunk = text.text;
                 let clean = chunk.trim();
                 if clean.is_empty() { printed_live = false; continue; }
-                // If we already streamed these tokens, skip re-printing the aggregated text
-                if printed_live { printed_live = false; continue; }
+                // Only skip if we're sure this text was already shown
+                // (This happens when text appears AFTER JSON in the buffer)
+                if printed_live && json_depth == 0 && json_lines_pending == 0 { 
+                    printed_live = false; 
+                    continue; 
+                }
+                printed_live = false;
                 // strip common chat prefixes like "< " if present
                 let clean = clean.trim_start_matches("< ");
                 if !last_was_newline { println!(); }
@@ -145,12 +182,22 @@ Approach: Think step-by-step, chat your thoughts, and propose tool calls.
                 last_was_newline = false;
             }
             Ok(StreamItem::Data(tc)) => {
+                if raw_mode {
+                    // In raw mode, show data with markers
+                    println!("\n[DATA_PARSED: {} with args {}]", tc.name, tc.args);
+                    continue;
+                }
                 if printed_live { printed_live = false; }
                 // If we have pending JSON lines that were printed raw, erase them now
                 if json_lines_pending > 0 {
-                    // Move cursor up and clear to end of screen
-                    print!("\x1b[{}A\x1b[J", json_lines_pending);
-                    let _ = std::io::Write::flush(&mut std::io::stdout());
+                    if debug_delete {
+                        // In debug mode, show deletion marker instead of actually deleting
+                        println!("\n[[[DELETE {} LINES ABOVE]]]", json_lines_pending);
+                    } else {
+                        // Move cursor up and clear to end of screen
+                        print!("\x1b[{}A\x1b[J", json_lines_pending);
+                        let _ = std::io::Write::flush(&mut std::io::stdout());
+                    }
                     json_lines_pending = 0;
                 }
                 tool_calls += 1;
