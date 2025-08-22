@@ -8,6 +8,16 @@ pub enum QueryResolverError {
     JsonDeserialization(#[source] serde_json::Error, String),
     #[error("Max retries exceeded")]
     MaxRetriesExceeded,
+    #[error("Data extraction error: {0}")]
+    DataExtraction(#[from] DataExtractionError),
+}
+
+#[derive(Error, Debug)]
+pub enum DataExtractionError {
+    #[error("No structured data found in response")]
+    NoDataFound,
+    #[error("Data extraction failed: {0}")]
+    ExtractionFailed(String),
 }
 
 #[derive(Error, Debug, Clone)]

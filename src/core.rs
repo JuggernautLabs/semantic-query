@@ -7,7 +7,7 @@
 //! - **Streaming**: Use `QueryResolver::stream_query<T>()` for real-time token streaming
 //! - **Legacy methods** (`query_deserialized`, `query_with_schema`) are deprecated stubs
 
-use crate::error::{QueryResolverError, AIError};
+use crate::error::{QueryResolverError, AIError, DataExtractionError};
 use crate::streaming::{StreamItem, TextContent, build_parsed_stream};
 use std::fmt;
 use serde::de::DeserializeOwned;
@@ -83,6 +83,17 @@ impl<T: JsonSchema + serde::Serialize + Clone> ParsedResponse<T> {
     /// Get the first data item if any exists (convenience method)
     pub fn first(&self) -> Option<&T> {
         self.first_data()
+    }
+    
+    /// Get the first data item, returning an error if none exists
+    /// This is a convenience method for clean error handling when migrating from single-item APIs
+    pub fn first_required(&self) -> Result<T, DataExtractionError> 
+    where 
+        T: Clone,
+    {
+        self.first()
+            .cloned()
+            .ok_or(DataExtractionError::NoDataFound)
     }
     
     /// Check if any data was extracted
