@@ -16,7 +16,7 @@ use std::pin::Pin;
 /// Usage:
 /// - `StreamItem::Text(TextContent { text })` preserves non-JSON content in the
 ///   order it appears, so you never lose commentary or context.
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema, PartialEq)]
 pub struct TextContent {
     /// Plain text content. Downstream systems can render or log this.
     pub text: String,

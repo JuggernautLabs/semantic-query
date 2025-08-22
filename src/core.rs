@@ -1,10 +1,14 @@
 //! Core querying API: wraps a low-level model client with resilient JSON extraction,
 //! schema-aware prompting, and streaming responses.
 //!
+//! # Deprecation Notice
+//! The V1 QueryResolver methods (`query_deserialized`, `query_with_schema`) are deprecated.
+//! Use `QueryResolverV2` from the `resolver_v2` module for better mixed content handling.
+//!
 //! Quick start:
-//! - `query_deserialized<T>`: returns `T` from prompts where the model embeds JSON.
-//! - `query_with_schema<T>`: appends JSON Schema for `T` to improve reliability.
-//! - `query_parsed<T>`: returns `Vec<StreamItem<T>>` preserving interleaved text + data.
+//! - **Recommended**: Use `QueryResolverV2::query_extract_first<T>()` for single items
+//! - **Recommended**: Use `QueryResolverV2::query_extract_all<T>()` for multiple items
+//! - **Recommended**: Use `QueryResolverV2::query_mixed<T>()` for mixed content with context
 //! - `query_stream<T, R: AsyncRead>`: emits `StreamItem<T>` as the stream arrives.
 
 use crate::error::{QueryResolverError, AIError};
@@ -127,18 +131,41 @@ impl<C: LowLevelClient> QueryResolver<C> {
     /// Usage:
     /// - For free-form prompts where the model emits JSON somewhere in the text.
     /// - Prefer `query_with_schema` when you can provide a schema for `T`.
+    /// 
+    /// # Deprecated
+    /// This method is deprecated. Use `QueryResolverV2::query_extract_first()` for better
+    /// mixed content handling and error reporting. See `resolver_v2` module for migration.
+    #[deprecated(since = "0.2.0", note = "Use QueryResolverV2::query_extract_first() instead")]
     #[instrument(target = "semantic_query::resolver", skip(self, prompt), fields(prompt_len = prompt.len()))]
     pub async fn query_deserialized<T>(&self, prompt: String) -> Result<T, QueryResolverError>
     where
         T: DeserializeOwned + Send,
     {
         info!(prompt_len = prompt.len(), "Starting query");
-        let result = self.ask_with_retry(prompt).await;
-        match &result {
-            Ok(_) => info!("Query completed successfully"),
-            Err(e) => error!(error = %e, "Query failed"),
+        // Simplified implementation for deprecated method - no retry logic
+        match self.client.ask_raw(prompt).await {
+            Ok(raw) => {
+                debug!(response_len = raw.len(), "Received API response");
+                let items: Vec<crate::json_utils::ParsedOrUnknown<T>> = json_utils::deserialize_stream_map::<T>(&raw);
+                if let Some(parsed) = items.into_iter().find_map(|it| match it { 
+                    json_utils::ParsedOrUnknown::Parsed(v) => Some(v), 
+                    _ => None 
+                }) {
+                    info!("Successfully parsed structured item from stream");
+                    Ok(parsed)
+                } else {
+                    error!("No matching JSON structure found in stream");
+                    Err(QueryResolverError::JsonDeserialization(
+                        serde_json::Error::io(std::io::Error::new(std::io::ErrorKind::Other, "No matching JSON structure found in stream")),
+                        raw,
+                    ))
+                }
+            }
+            Err(ai_error) => {
+                error!(error = %ai_error, "API call failed");
+                Err(QueryResolverError::Ai(ai_error))
+            }
         }
-        result
     }
     
     /// Return a deserialized value `T` with automatic JSON Schema guidance.
@@ -146,6 +173,12 @@ impl<C: LowLevelClient> QueryResolver<C> {
     /// Appends the JSON Schema for `T` to the prompt and guides the model to
     /// include a valid JSON value somewhere in the response (our parser can
     /// extract JSON from interleaved text or streamed output).
+    /// 
+    /// # Deprecated
+    /// This method is deprecated. Use `QueryResolverV2::query_extract_first()` for better
+    /// mixed content handling that preserves context. For compatibility, use
+    /// `QueryResolverV2::query_with_schema_compat()`. See `resolver_v2` module for migration.
+    #[deprecated(since = "0.2.0", note = "Use QueryResolverV2::query_extract_first() instead")]
     #[instrument(target = "semantic_query::resolver", skip(self, prompt), fields(prompt_len = prompt.len()))]
     pub async fn query_with_schema<T>(&self, prompt: String) -> Result<T, QueryResolverError>
     where
@@ -158,101 +191,6 @@ impl<C: LowLevelClient> QueryResolver<C> {
             Err(e) => error!(error = %e, "Schema-aware query failed"),
         }
         result
-    }
-    
-    /// Internal method for retry logic with JSON parsing
-    #[instrument(target = "semantic_query::resolver", skip(self, prompt), fields(prompt_len = prompt.len()))]
-    async fn ask_with_retry<T>(&self, prompt: String) -> Result<T, QueryResolverError>
-    where
-        T: DeserializeOwned + Send,
-    {
-        let mut attempt = 0;
-        let mut context = String::new();
-        
-        info!(attempt = 0, max_retries = self.config.default_max_retries, "Starting retry loop for prompt");
-        
-        loop {
-            let full_prompt = if context.is_empty() {
-                prompt.clone()
-            } else {
-                format!("{}\n\nPrevious attempt failed: {}\nPlease fix the issue and respond with valid JSON.", prompt, context)
-            };
-            
-            debug!(attempt = attempt + 1, prompt_len = full_prompt.len(), "Making API call");
-            match self.client.ask_raw(full_prompt.clone()).await {
-                Ok(raw) => {
-                    debug!(response_len = raw.len(), "Received API response");
-                    let items: Vec<crate::json_utils::ParsedOrUnknown<T>> = json_utils::deserialize_stream_map::<T>(&raw);
-                    // Return first successfully parsed item
-                    if let Some(parsed) = items.into_iter().find_map(|it| match it { json_utils::ParsedOrUnknown::Parsed(v) => Some(v), _ => None }) {
-                        info!(attempt = attempt + 1, "Successfully parsed structured item from stream");
-                        return Ok(parsed);
-                    }
-
-                    // No parsed item found
-                    let max_retries = self.config.max_retries.get("json_parse_error")
-                        .unwrap_or(&self.config.default_max_retries);
-
-                    if attempt >= *max_retries {
-                        error!(attempt = attempt + 1, max_retries = max_retries, "Max retries exceeded; no matching structures found");
-                        return Err(QueryResolverError::JsonDeserialization(
-                            serde_json::Error::io(std::io::Error::new(std::io::ErrorKind::Other, "No matching JSON structure found in stream")),
-                            raw,
-                        ));
-                    }
-
-                    warn!(attempt = attempt + 1, max_retries = max_retries, "Retrying due to no matching structures in stream");
-                    context = "No matching JSON structure found".to_string();
-                    attempt += 1;
-                }
-                Err(ai_error) => {
-                    warn!(error = %ai_error, attempt = attempt + 1, "API call failed");
-                    let error_type = match &ai_error {
-                        AIError::Claude(claude_err) => match claude_err {
-                            crate::error::ClaudeError::RateLimit => "rate_limit",
-                            crate::error::ClaudeError::Http(_) => "http_error",
-                            crate::error::ClaudeError::Api(_) => "api_error",
-                            _ => "other",
-                        },
-                        AIError::OpenAI(openai_err) => match openai_err {
-                            crate::error::OpenAIError::RateLimit => "rate_limit",
-                            crate::error::OpenAIError::Http(_) => "http_error", 
-                            crate::error::OpenAIError::Api(_) => "api_error",
-                            _ => "other",
-                        },
-                        AIError::DeepSeek(deepseek_err) => match deepseek_err {
-                            crate::error::DeepSeekError::RateLimit => "rate_limit",
-                            crate::error::DeepSeekError::Http(_) => "http_error",
-                            crate::error::DeepSeekError::Api(_) => "api_error",
-                            _ => "other",
-                        },
-                        AIError::Mock(_) => "mock_error",
-                    };
-                    
-                    let max_retries = self.config.max_retries.get(error_type)
-                        .unwrap_or(&self.config.default_max_retries);
-                    
-                    if attempt >= *max_retries {
-                        error!(
-                            error = %ai_error, 
-                            error_type = error_type,
-                            max_retries = max_retries,
-                            "Max retries exceeded for API error"
-                        );
-                        return Err(QueryResolverError::Ai(ai_error));
-                    }
-                    
-                    info!(
-                        error_type = error_type,
-                        attempt = attempt + 1,
-                        max_retries = max_retries,
-                        "Retrying after API error"
-                    );
-                    context = format!("API call failed: {}", ai_error);
-                    attempt += 1;
-                }
-            }
-        }
     }
     
     /// Generate a JSON schema for the return type and append it to the prompt
@@ -287,7 +225,30 @@ Include at least one JSON value that strictly conforms to the following JSON Sch
         info!("Starting schema-aware query");
         let augmented_prompt = self.augment_prompt_with_schema::<T>(prompt);
         debug!(augmented_prompt_len = augmented_prompt.len(), "Generated schema-augmented prompt");
-        self.ask_with_retry(augmented_prompt).await
+        // Simplified implementation for deprecated method - no retry logic
+        match self.client.ask_raw(augmented_prompt).await {
+            Ok(raw) => {
+                debug!(response_len = raw.len(), "Received API response");
+                let items: Vec<crate::json_utils::ParsedOrUnknown<T>> = json_utils::deserialize_stream_map::<T>(&raw);
+                if let Some(parsed) = items.into_iter().find_map(|it| match it { 
+                    json_utils::ParsedOrUnknown::Parsed(v) => Some(v), 
+                    _ => None 
+                }) {
+                    info!("Successfully parsed structured item from stream");
+                    Ok(parsed)
+                } else {
+                    error!("No matching JSON structure found in stream");
+                    Err(QueryResolverError::JsonDeserialization(
+                        serde_json::Error::io(std::io::Error::new(std::io::ErrorKind::Other, "No matching JSON structure found in stream")),
+                        raw,
+                    ))
+                }
+            }
+            Err(ai_error) => {
+                error!(error = %ai_error, "API call failed");
+                Err(QueryResolverError::Ai(ai_error))
+            }
+        }
     }
 
     /// Stream items (text + structured data) from a live model response.
